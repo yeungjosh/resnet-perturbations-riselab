@@ -5,6 +5,7 @@ Trains a ResNet model on CIFAR10 using constraints on the weights.
 This example is inspired by the official PyTorch MNIST example, which
 can be found [here](https://github.com/pytorch/examples/blob/master/mnist/main.py).
 """
+from __future__ import print_function
 import warnings
 import torch.nn.functional as F
 import torch.nn as nn
@@ -19,9 +20,6 @@ from torch.nn import functional as F
 from torchvision.models import resnet18
 
 import chop
-
-# To install wandb
-# !pip install wandb
 
 import wandb
 
@@ -83,14 +81,9 @@ def train(args, model, device, train_loader, opt, opt_bias, epoch):
                 100. * batch_idx / len(train_loader), loss.item()))
             wandb.log({"Train Loss": loss.item(),
                        "Logits": F.log_softmax(output, dim=-1).cpu()})
-    sparsity, rank = get_sparsity_and_rank(opt)
-    wandb.log({
-        "Sparsity": sparsity,
-        "Rank": rank
-        })
 
 
-def test(args, model, device, test_loader):
+def test(args, model, device, test_loader, opt, epoch):
     model.eval()
     test_loss = 0
     correct = 0
@@ -101,7 +94,8 @@ def test(args, model, device, test_loader):
             data, target = data.to(device), target.to(device)
             output = model(data)
             # sum up batch loss
-            test_loss += F.cross_entropy(output, target, reduction='sum').item()
+            test_loss += F.cross_entropy(output,
+                                         target, reduction='sum').item()
             # get the index of the max log-probability
             pred = output.max(1, keepdim=True)[1]
             correct += pred.eq(target.view_as(pred)).sum().item()
@@ -112,10 +106,14 @@ def test(args, model, device, test_loader):
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
+    sparsity, rank = get_sparsity_and_rank(opt)
     wandb.log({
-        "Examples": example_images,
+        # "Examples": example_images,
         "Test Accuracy": 100. * correct / len(test_loader.dataset),
-        "Test Loss": test_loss})
+        "Test Loss": test_loss,
+        "Sparsity": sparsity,
+        "Rank": rank,
+        "Epoch": epoch})
 
 
 def main():
@@ -132,6 +130,8 @@ def main():
                         help='learning rate (default: "sublinear")')
     parser.add_argument('--lr_bias', default=0.01, type=float, metavar='LR_BIAS',
                         help='learning rate (default: 0.01)')
+    parser.add_argument('--lr_decay', default=.1, type=float)
+    parser.add_argument('--lr_decay_step', default=25, type=int)
     parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                         help='Optimizer momentum (default: 0.9)')
     parser.add_argument('--weight_decay', type=float, default=1e-4, metavar='W',
@@ -146,7 +146,7 @@ def main():
                         help='disables CUDA training')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
-    parser.add_argument('--log-interval', type=int, default=10, metavar='N',
+    parser.add_argument('--log-interval', type=int, default=50, metavar='N',
                         help='how many batches to wait before logging training status')
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
@@ -162,7 +162,8 @@ def main():
 
     print("Loading dataset...")
     dataset = chop.utils.data.CIFAR10("~/datasets/")
-    loaders = dataset.loaders(args.batch_size, args.test_batch_size, num_workers=0)
+    loaders = dataset.loaders(
+        args.batch_size, args.test_batch_size, num_workers=0)
 
     print("Preparing model...")
     model = resnet18(num_classes=10).to(device)
@@ -193,27 +194,32 @@ def main():
             if m == n == 1:
                 proxes[k], lmos[k], proxes_lr[k] = None, None, None
 
-
-
     print("Initialize optimizer...")
     optimizer = chop.stochastic.SplittingProxFW(model.parameters(), lmos,
                                                 proxes,
-                                                lr_lmo=args.lr,
+                                                lr=args.lr,
                                                 lr_prox=args.lr,
                                                 momentum=args.momentum,
                                                 weight_decay=args.weight_decay,
                                                 normalization=args.grad_norm)
 
+    scheduler = torch.optim.lr_scheduler.StepLR(
+        optimizer, step_size=25, gamma=args.lr_decay)
+
     bias_params = (param for param, lmo in zip(model.parameters(), lmos)
                    if lmo is not None)
     bias_opt = torch.optim.SGD(bias_params, lr=args.lr_bias, momentum=.9)
+    bias_scheduler = torch.optim.lr_scheduler.StepLR(
+        bias_opt, step_size=25, gamma=args.lr_decay)
 
     wandb.watch(model, log_freq=1, log='all')
 
     print("Training...")
     for epoch in range(1, args.epochs + 1):
         train(args, model, device, loaders.train, optimizer, bias_opt, epoch)
-        test(args, model, device, loaders.test)
+        test(args, model, device, loaders.test, optimizer, epoch)
+        scheduler.step()
+        bias_scheduler.step()
 
 
 if __name__ == '__main__':
