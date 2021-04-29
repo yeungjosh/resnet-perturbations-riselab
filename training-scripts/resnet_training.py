@@ -241,8 +241,11 @@ if __name__ == "__main__":
             model.zero_grad()
             outputs = model(X)
             loss = loss_function(outputs, y) + tools.L2reg(model, l2_lambda)
-
-            loss.backward()
+            
+            if args.optimizer == 'adahessian':
+                loss.backward(create_graph=True)  # You need this line for Hessian backprop
+            else:
+                loss.backward()
             optimizer.step()
             current_loss = loss.item()
             total_loss += current_loss

@@ -208,7 +208,7 @@ def main():
                    if lmo is not None)
     bias_opt = torch.optim.SGD(bias_params, lr=args.lr_bias, momentum=.9)
 
-    wandb.watch(model, log_freq=1, log='all')
+    # wandb.watch(model, log_freq=1, log='all')
 
     print("Training...")
     for epoch in range(1, args.epochs + 1):
