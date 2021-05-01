@@ -115,6 +115,102 @@ def test(args, model, device, test_loader, opt, epoch):
         "Rank": rank,
         "Epoch": epoch})
 
+class RetractionLR(torch.optim.lr_scheduler._LRScheduler):
+    """
+    Retracts the learning rate as follows. Two running averages are kept, one of length n_close, one of n_far. Adjust
+    the learning_rate depending on the relation of far_average and close_average. Decrease by 1-retraction_factor.
+    Increase by 1/(1 - retraction_factor*growth_factor)
+    """
+    def __init__(self, optimizer, retraction_factor=0.3, n_close=5, n_far=10, lowerBound=1e-5, upperBound=1, growth_factor=0.2, last_epoch=-1):
+        self.retraction_factor = retraction_factor
+        self.n_close = n_close
+        self.n_far = n_far
+        self.lowerBound = lowerBound
+        self.upperBound = upperBound
+        self.growth_factor = growth_factor
+
+        assert (0 <= self.retraction_factor < 1), "Retraction factor must be in [0, 1[."
+        assert (0 <= self.lowerBound < self.upperBound <= 1), "Bounds must be in [0, 1]"
+        assert (0 < self.growth_factor <= 1), "Growth factor must be in ]0, 1]"
+
+        self.closeAverage = RunningAverage(self.n_close)
+        self.farAverage = RunningAverage(self.n_far)
+
+        super(RetractionLR, self).__init__(optimizer, last_epoch)
+
+    def update_averages(self, loss):
+        self.closeAverage(loss)
+        self.farAverage(loss)
+
+    def get_lr(self):
+        if not self._get_lr_called_within_step:
+            warnings.warn("To get the last learning rate computed by the scheduler, "
+                          "please use `get_last_lr()`.", UserWarning)
+
+        factor = 1
+        if self.farAverage.is_complete() and self.closeAverage.is_complete():
+            if self.closeAverage.result() > self.farAverage.result():
+                # Decrease the learning rate
+                factor = 1 - self.retraction_factor
+            elif self.farAverage.result() > self.closeAverage.result():
+                # Increase the learning rate
+                factor = 1./(1 - self.retraction_factor*self.growth_factor)
+
+        return [max(self.lowerBound, min(factor * group['lr'], self.upperBound)) for group in self.optimizer.param_groups]
+
+class RunningAverage(object):
+    """Tracks the running average of n numbers"""
+    def __init__(self, n):
+        self.n = n
+        self.reset()
+
+    def reset(self):
+        self.sum = 0
+        self.avg = 0
+        self.entries = []
+
+    def result(self):
+        return self.avg
+
+    def get_count(self):
+        return len(self.entries)
+
+    def is_complete(self):
+        return len(self.entries) == self.n
+
+    def __call__(self, val):
+        if len(self.entries) == self.n:
+            l = self.entries.pop(0)
+            self.sum -= l
+        self.entries.append(val)
+        self.sum += val
+        self.avg = self.sum / len(self.entries)
+
+    def __str__(self):
+        return str(self.avg)
+
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.sum = 0
+        self.count = 0
+        self.avg = 0
+
+    def result(self):
+        return self.avg
+
+    def __call__(self, val, n=1):
+        """val is an average over n samples. To compute the overall average, add val*n to sum and increase count by n"""
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+    def __str__(self):
+        return str(self.avg)
+        
 
 def main():
 
@@ -148,6 +244,13 @@ def main():
                         help='random seed (default: 1)')
     parser.add_argument('--log-interval', type=int, default=50, metavar='N',
                         help='how many batches to wait before logging training status')
+
+    parser.add_argument('--retraction', type=bool, default=True,
+                        help='enable retraction of the learning rate')
+
+
+    # You can also enable retraction of the learning rate, i.e., if enabled the learning rate is increased and decreased automatically depending on the two moving averages of different length of the train loss over the epochs.
+
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -194,6 +297,18 @@ def main():
             if m == n == 1:
                 proxes[k], lmos[k], proxes_lr[k] = None, None, None
 
+    # initialize some necessary metrics objects
+    train_loss, train_accuracy = AverageMeter(), AverageMeter()
+    test_loss, test_accuracy = AverageMeter(), AverageMeter()
+
+    # function to reset metrics
+    def reset_metrics():
+        train_loss.reset()
+        train_accuracy.reset()
+
+        test_loss.reset()
+        test_accuracy.reset()
+
     print("Initialize optimizer...")
     optimizer = chop.stochastic.SplittingProxFW(model.parameters(), lmos,
                                                 proxes,
@@ -205,6 +320,9 @@ def main():
 
     scheduler = torch.optim.lr_scheduler.StepLR(
         optimizer, step_size=25, gamma=args.lr_decay)
+    
+    if args.retraction:
+        retractionScheduler = RetractionLR(optimizer=optimizer)
 
     bias_params = (param for param, lmo in zip(model.parameters(), lmos)
                    if lmo is not None)
@@ -220,6 +338,11 @@ def main():
         test(args, model, device, loaders.test, optimizer, epoch)
         scheduler.step()
         bias_scheduler.step()
+
+        if args.retraction:
+            # Learning rate retraction
+            retractionScheduler.update_averages(train_loss.result())
+            retractionScheduler.step()
 
 
 if __name__ == '__main__':
