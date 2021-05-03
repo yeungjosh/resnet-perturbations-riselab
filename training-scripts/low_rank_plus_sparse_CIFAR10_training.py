@@ -113,7 +113,9 @@ def test(args, model, device, test_loader, opt, epoch):
         "Test Loss": test_loss,
         "Sparsity": sparsity,
         "Rank": rank,
+        "LR": opt.param_groups[0]['lr'],
         "Epoch": epoch})
+
 
 class RetractionLR(torch.optim.lr_scheduler._LRScheduler):
     """
@@ -158,6 +160,7 @@ class RetractionLR(torch.optim.lr_scheduler._LRScheduler):
 
         return [max(self.lowerBound, min(factor * group['lr'], self.upperBound)) for group in self.optimizer.param_groups]
 
+
 class RunningAverage(object):
     """Tracks the running average of n numbers"""
     def __init__(self, n):
@@ -189,6 +192,7 @@ class RunningAverage(object):
     def __str__(self):
         return str(self.avg)
 
+
 class AverageMeter(object):
     """Computes and stores the average and current value"""
     def __init__(self):
@@ -210,7 +214,7 @@ class AverageMeter(object):
 
     def __str__(self):
         return str(self.avg)
-        
+
 
 def main():
 
@@ -224,8 +228,10 @@ def main():
                         help='number of epochs to train (default: 5)')
     parser.add_argument('--lr',  default=1e-2, metavar='LR',
                         help='learning rate (default: "sublinear")')
-    parser.add_argument('--lr_bias', default=0.01, type=float, metavar='LR_BIAS',
-                        help='learning rate (default: 0.01)')
+    parser.add_argument('--lipschitz', default=1., type=float, metavar='LIP',
+                        help='Lipschitz estimate, used in the prox (default: 1.)')
+    parser.add_argument('--lr_bias',  default=1e-2, type=float, metavar='LRB',
+                        help='learning rate (default: "sublinear")')
     parser.add_argument('--lr_decay', default=.1, type=float)
     parser.add_argument('--lr_decay_step', default=25, type=int)
     parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
@@ -242,15 +248,16 @@ def main():
                         help='disables CUDA training')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
-    parser.add_argument('--log-interval', type=int, default=50, metavar='N',
+    parser.add_argument('--log_interval', type=int, default=50, metavar='N',
                         help='how many batches to wait before logging training status')
-
     parser.add_argument('--retraction', type=bool, default=True,
                         help='enable retraction of the learning rate')
 
-
-    # You can also enable retraction of the learning rate, i.e., if enabled the learning rate is increased and decreased automatically depending on the two moving averages of different length of the train loss over the epochs.
-
+    # You can also enable retraction of the learning rate, i.e.,
+    # if enabled the learning rate
+    # is increased and decreased automatically depending on
+    # the two moving averages of different length of the train loss
+    # over the epochs.
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -313,14 +320,14 @@ def main():
     optimizer = chop.stochastic.SplittingProxFW(model.parameters(), lmos,
                                                 proxes,
                                                 lr=args.lr,
-                                                lr_prox=args.lr,
+                                                lipschitz=args.lipschitz,
                                                 momentum=args.momentum,
                                                 weight_decay=args.weight_decay,
                                                 normalization=args.grad_norm)
 
     scheduler = torch.optim.lr_scheduler.StepLR(
-        optimizer, step_size=25, gamma=args.lr_decay)
-    
+        optimizer, step_size=args.lr_decay_step, gamma=args.lr_decay)
+
     if args.retraction:
         retractionScheduler = RetractionLR(optimizer=optimizer)
 
@@ -328,7 +335,7 @@ def main():
                    if lmo is not None)
     bias_opt = torch.optim.SGD(bias_params, lr=args.lr_bias, momentum=.9)
     bias_scheduler = torch.optim.lr_scheduler.StepLR(
-        bias_opt, step_size=25, gamma=args.lr_decay)
+        bias_opt, step_size=args.lr_decay_step, gamma=args.lr_decay)
 
     # wandb.watch(model, log_freq=1, log='all')
 
