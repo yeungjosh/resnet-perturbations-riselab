@@ -17,7 +17,7 @@ from tqdm import tqdm
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torchvision.models import resnet18
+from torchvision.models import resnet18, resnet50
 
 import chop
 
@@ -81,6 +81,7 @@ def train(args, model, device, train_loader, opt, opt_bias, epoch):
                 100. * batch_idx / len(train_loader), loss.item()))
             wandb.log({"Train Loss": loss.item(),
                        "Logits": F.log_softmax(output, dim=-1).cpu()})
+    return loss
 
 
 def test(args, model, device, test_loader, opt, epoch):
@@ -220,6 +221,7 @@ def main():
 
     # Training settings
     parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Example')
+    parser.add_argument('--resnet_width', type=int, default=18)
     parser.add_argument('--batch_size', type=int, default=128, metavar='N',
                         help='input batch size for training (default: 64)')
     parser.add_argument('--test_batch_size', type=int, default=1000, metavar='N',
@@ -276,7 +278,12 @@ def main():
         args.batch_size, args.test_batch_size, num_workers=0)
 
     print("Preparing model...")
-    model = resnet18(num_classes=10).to(device)
+    if args.resnet_width == 18:
+        model = resnet18(num_classes=10).to(device)
+    elif args.resnet_width == 50:
+        model = resnet50(num_classes=10).to(device)
+    else:
+        raise ValueError("Can only use resnet18 or resnet50 currently.")
     print("Make constraints...")
     constraints_sparsity = chop.constraints.make_model_constraints(model,
                                                                    ord=1,
@@ -341,7 +348,9 @@ def main():
 
     print("Training...")
     for epoch in range(1, args.epochs + 1):
-        train(args, model, device, loaders.train, optimizer, bias_opt, epoch)
+        train_loss = train(args, model, device, loaders.train, optimizer, bias_opt, epoch)
+        if train_loss.isnan():
+            break
         test(args, model, device, loaders.test, optimizer, epoch)
         scheduler.step()
         bias_scheduler.step()
