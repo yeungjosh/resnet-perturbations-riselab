@@ -60,7 +60,7 @@ def get_sparsity_and_rank(opt):
     return nnzero / n_params, total_rank / max_rank
 
 
-def train(args, model, device, train_loader, opt, opt_bias, epoch):
+def train(args, model, device, train_loader, opt, opt_bias, epoch, train_loss):
     model.train()
     for batch_idx, (data, target) in tqdm(enumerate(train_loader),
                                           desc=f'Training epoch {epoch}'):
@@ -75,6 +75,7 @@ def train(args, model, device, train_loader, opt, opt_bias, epoch):
             break
         opt.step()
         opt_bias.step()
+        train_loss(loss.item(), len(target))
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
@@ -348,8 +349,8 @@ def main():
 
     print("Training...")
     for epoch in range(1, args.epochs + 1):
-        train_loss = train(args, model, device, loaders.train, optimizer, bias_opt, epoch)
-        if train_loss.isnan():
+        loss = train(args, model, device, loaders.train, optimizer, bias_opt, epoch, train_loss)
+        if loss.isnan():
             break
         test(args, model, device, loaders.test, optimizer, epoch)
         scheduler.step()
