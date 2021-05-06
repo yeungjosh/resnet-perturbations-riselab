@@ -42,6 +42,34 @@ wandb.init(project='low-rank_sparse_cifar10', config=default_config)
 config = wandb.config
 
 
+def log_opt_state(opt, splitting=True):
+    singular_values = []
+    values = []
+    singular_values_lr = []
+    values_sparse = []
+
+    for group in opt.param_groups:
+        for p in group['params']:
+            state = opt.state[p]
+            _, s, _ = torch.linalg.svd(p)
+            singular_values.append(s.flatten().detach().cpu())
+            values.append(p.flatten().detach().cpu())
+            if splitting:
+                _, s, _ = torch.linalg.svd(state['y'])
+                singular_values_lr.append(s.flatten().detach().cpu())
+                values_sparse.append(state['x'].flatten().detach().cpu())
+
+    wandb.log({
+        "singular_values_of_parameter": wandb.Histogram(torch.cat(singular_values)),
+        "values": wandb.Histogram(torch.cat(values))
+    })
+    if splitting:
+        wandb.log({
+            "sparse_component": wandb.Histogram(torch.cat(values_sparse)),
+            "singular_values_of_lr_component": wandb.Histogram(torch.cat(singular_values_lr)),
+        })
+
+
 def get_sparsity_and_rank(opt, splitting=True):
     nnzero = 0
     n_params = 0
@@ -92,6 +120,7 @@ def train(args, model, device, train_loader, opt, opt_bias, epoch, train_loss, s
                 100. * batch_idx / len(train_loader), loss.item()))
             wandb.log({"Train Loss": loss.item(),
                        "Logits": F.log_softmax(output, dim=-1).cpu()})
+
     return loss
 
 
@@ -127,6 +156,8 @@ def test(args, model, device, test_loader, opt, epoch, splitting=True):
         "Rank": rank,
         "LR": opt.param_groups[0]['lr'],
         "Epoch": epoch})
+    
+    log_opt_state(opt, splitting)
 
 
 class RetractionLR(torch.optim.lr_scheduler._LRScheduler):
@@ -253,9 +284,9 @@ def main():
                         help='Optimizer weight decay (default: 0.)')
     parser.add_argument('--grad_norm', type=str, default='gradient',
                         help='Gradient normalization options')
-    parser.add_argument('--nuc_constraint_size', type=float, default=1e3,
+    parser.add_argument('--nuc_constraint_size', type=float, default=70,
                         help='Size of the Nuclear norm Ball constraint')
-    parser.add_argument('--l1_constraint_size', type=float, default=1e3,
+    parser.add_argument('--l1_constraint_size', type=float, default=30,
                         help='Size of the ell-1 norm Ball constraint')
     parser.add_argument('--no_cuda', action='store_true', default=False,
                         help='disables CUDA training')
@@ -353,8 +384,6 @@ def main():
         bias_scheduler = torch.optim.lr_scheduler.StepLR(
             bias_opt, step_size=args.lr_decay_step, gamma=args.lr_decay)
 
-
-    # wandb.watch(model, log_freq=1, log='all')
 
     print("Training...")
 
