@@ -290,7 +290,7 @@ def main():
     parser.add_argument('--lr_bias',  default=1e-2, type=float, metavar='LRB',
                         help='learning rate (default: "sublinear")')
     parser.add_argument('--lr_decay', default=.1, type=float)
-    parser.add_argument('--lr_decay_step', default=25, type=int)
+    parser.add_argument('--lr_decay_step', default=30, type=int)
     parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                         help='Optimizer momentum (default: 0.9)')
     parser.add_argument('--weight_decay', type=float, default=5e-4, metavar='W',
@@ -387,8 +387,10 @@ def main():
             test_accuracy.reset()
 
         print("Initialize optimizer...")
-        optimizer = chop.stochastic.SplittingProxFW(model.parameters(), lmos,
-                                                    proxes,
+        optimizer = chop.stochastic.SplittingProxFW(model.parameters(),
+                                                    lmo=lmos,
+                                                    prox1=proxes,
+                                                    prox2=proxes_lr,
                                                     lr=args.lr,
                                                     lipschitz=args.lipschitz,
                                                     momentum=args.momentum,
