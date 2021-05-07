@@ -441,6 +441,7 @@ def main():
                 'bias_opt_scheduler_state_dict': bias_scheduler.state_dict() if bias_scheduler else None,
                 'retraction_scheduler_state_dict': retractionScheduler.state_dict() if retractionScheduler else None,
                 'opt_bias_state_dict': bias_opt.state_dict() if bias_opt else None,
+                'args': args
             }, LOGPATH)
 
 
