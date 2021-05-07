@@ -10,9 +10,9 @@ import warnings
 import torch.nn.functional as F
 import torch.nn as nn
 import argparse
-
+import os
 from tqdm import tqdm
-
+from datetime import datetime
 
 import torch
 from torch import nn
@@ -42,7 +42,7 @@ wandb.init(project='low-rank_sparse_cifar10', config=default_config)
 config = wandb.config
 
 
-def log_opt_state(opt, splitting=True):
+def log_opt_state(opt, epoch, splitting=True):
     singular_values = []
     values = []
     singular_values_lr = []
@@ -61,12 +61,14 @@ def log_opt_state(opt, splitting=True):
 
     wandb.log({
         "singular_values_of_parameter": wandb.Histogram(torch.cat(singular_values)),
-        "values": wandb.Histogram(torch.cat(values))
+        "values": wandb.Histogram(torch.cat(values)),
+        "Epoch": epoch
     })
     if splitting:
         wandb.log({
             "sparse_component": wandb.Histogram(torch.cat(values_sparse)),
             "singular_values_of_lr_component": wandb.Histogram(torch.cat(singular_values_lr)),
+            "Epoch": epoch
         })
 
 
@@ -120,7 +122,6 @@ def train(args, model, device, train_loader, opt, opt_bias, epoch, train_loss, s
                 100. * batch_idx / len(train_loader), loss.item()))
             wandb.log({"Train Loss": loss.item(),
                        "Logits": F.log_softmax(output, dim=-1).cpu()})
-
     return loss
 
 
@@ -156,8 +157,8 @@ def test(args, model, device, test_loader, opt, epoch, splitting=True):
         "Rank": rank,
         "LR": opt.param_groups[0]['lr'],
         "Epoch": epoch})
-    
-    log_opt_state(opt, splitting)
+
+    log_opt_state(opt, epoch, splitting)
 
 
 class RetractionLR(torch.optim.lr_scheduler._LRScheduler):
@@ -166,6 +167,7 @@ class RetractionLR(torch.optim.lr_scheduler._LRScheduler):
     the learning_rate depending on the relation of far_average and close_average. Decrease by 1-retraction_factor.
     Increase by 1/(1 - retraction_factor*growth_factor)
     """
+
     def __init__(self, optimizer, retraction_factor=0.3, n_close=5, n_far=10, lowerBound=1e-5, upperBound=1, growth_factor=0.2, last_epoch=-1):
         self.retraction_factor = retraction_factor
         self.n_close = n_close
@@ -174,8 +176,10 @@ class RetractionLR(torch.optim.lr_scheduler._LRScheduler):
         self.upperBound = upperBound
         self.growth_factor = growth_factor
 
-        assert (0 <= self.retraction_factor < 1), "Retraction factor must be in [0, 1[."
-        assert (0 <= self.lowerBound < self.upperBound <= 1), "Bounds must be in [0, 1]"
+        assert (0 <= self.retraction_factor <
+                1), "Retraction factor must be in [0, 1[."
+        assert (0 <= self.lowerBound < self.upperBound <=
+                1), "Bounds must be in [0, 1]"
         assert (0 < self.growth_factor <= 1), "Growth factor must be in ]0, 1]"
 
         self.closeAverage = RunningAverage(self.n_close)
@@ -206,6 +210,7 @@ class RetractionLR(torch.optim.lr_scheduler._LRScheduler):
 
 class RunningAverage(object):
     """Tracks the running average of n numbers"""
+
     def __init__(self, n):
         self.n = n
         self.reset()
@@ -238,6 +243,7 @@ class RunningAverage(object):
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
+
     def __init__(self):
         self.reset()
 
@@ -257,6 +263,13 @@ class AverageMeter(object):
 
     def __str__(self):
         return str(self.avg)
+
+
+def get_model_logpath(path):
+    filename, extension = os.path.splitext(path)
+    time = datetime.strftime(datetime.now(), "%y%m%d_%H%M%S")
+    path = filename + time + extension
+    return path
 
 
 def main():
@@ -297,6 +310,8 @@ def main():
     parser.add_argument('--retraction', type=bool, default=True,
                         help='enable retraction of the learning rate')
     parser.add_argument('--no_splitting', action='store_true', default=False)
+    parser.add_argument('--log_model_interval', type=int, default=10,
+                        help='how many batches to wait before saving the state of everything')
 
     # You can also enable retraction of the learning rate, i.e.,
     # if enabled the learning rate
@@ -323,27 +338,35 @@ def main():
     print("Preparing model...")
     model = ResNet(depth=args.resnet_depth, num_classes=10).to(device)
 
+    if not os.path.exists('models/'):
+        os.mkdir('models/')
+    LOGPATH = "models/run.chkpt"
+    LOGPATH = get_model_logpath(LOGPATH)
+
     if args.no_splitting:
-        optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.lr_decay_step, gamma=args.lr_decay)
+        optimizer = torch.optim.SGD(
+            model.parameters(), lr=args.lr, momentum=args.momentum)
+        scheduler = torch.optim.lr_scheduler.StepLR(
+            optimizer, step_size=args.lr_decay_step, gamma=args.lr_decay)
         bias_opt = None
-    else:      
+        bias_scheduler = None
+    else:
         print("Make constraints...")
         constraints_sparsity = chop.constraints.make_model_constraints(model,
-                                                                    ord=1,
-                                                                    value=args.l1_constraint_size,
-                                                                    constrain_bias=False)
+                                                                       ord=1,
+                                                                       value=args.l1_constraint_size,
+                                                                       constrain_bias=False)
         constraints_low_rank = chop.constraints.make_model_constraints(model,
-                                                                    ord='nuc',
-                                                                    value=args.nuc_constraint_size,
-                                                                    constrain_bias=False)
+                                                                       ord='nuc',
+                                                                       value=args.nuc_constraint_size,
+                                                                       constrain_bias=False)
         proxes = [constraint.prox if constraint else None
-                for constraint in constraints_sparsity]
+                  for constraint in constraints_sparsity]
         lmos = [constraint.lmo if constraint else None
                 for constraint in constraints_low_rank]
 
         proxes_lr = [constraint.prox if constraint else None
-                    for constraint in constraints_low_rank]
+                     for constraint in constraints_low_rank]
 
         # Unconstrain downsampling layers
         for k, (name, param) in enumerate(model.named_parameters()):
@@ -377,25 +400,29 @@ def main():
 
         if args.retraction:
             retractionScheduler = RetractionLR(optimizer=optimizer)
+        else:
+            retractionScheduler = None
 
         bias_params = (param for param, lmo in zip(model.parameters(), lmos)
-                    if lmo is not None)
-        bias_opt = torch.optim.SGD(bias_params, lr=args.lr_bias, momentum=args.momentum)
+                       if lmo is not None)
+        bias_opt = torch.optim.SGD(
+            bias_params, lr=args.lr_bias, momentum=args.momentum)
         bias_scheduler = torch.optim.lr_scheduler.StepLR(
             bias_opt, step_size=args.lr_decay_step, gamma=args.lr_decay)
-
 
     print("Training...")
 
     # initialize some necessary metrics objects
     train_loss, train_accuracy = AverageMeter(), AverageMeter()
     test_loss, test_accuracy = AverageMeter(), AverageMeter()
-    
+
     for epoch in range(1, args.epochs + 1):
-        loss = train(args, model, device, loaders.train, optimizer, bias_opt, epoch, train_loss, not args.no_splitting)
+        loss = train(args, model, device, loaders.train, optimizer,
+                     bias_opt, epoch, train_loss, not args.no_splitting)
         if loss.isnan():
             break
-        test(args, model, device, loaders.test, optimizer, epoch, not args.no_splitting)
+        test(args, model, device, loaders.test,
+             optimizer, epoch, not args.no_splitting)
         scheduler.step()
         if not args.no_splitting:
             bias_scheduler.step()
@@ -404,6 +431,17 @@ def main():
             # Learning rate retraction
             retractionScheduler.update_averages(train_loss.result())
             retractionScheduler.step()
+
+        if epoch % args.log_model_interval == 1:
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'opt_scheduler_state_dict': scheduler.state_dict(),
+                'bias_opt_scheduler_state_dict': bias_scheduler.state_dict() if bias_scheduler else None,
+                'retraction_scheduler_state_dict': retractionScheduler.state_dict() if retractionScheduler else None,
+                'opt_bias_state_dict': bias_opt.state_dict() if bias_opt else None,
+            }, LOGPATH)
 
 
 if __name__ == '__main__':
