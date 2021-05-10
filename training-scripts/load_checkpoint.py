@@ -1,11 +1,13 @@
 import torch
 import chop
-from resnet import Resnet
 
+device = torch.device('cpu')
 
 def load(checkpoint_path, args=None):
-
-    checkpoint = torch.load(checkpoint_path)
+    try:
+        checkpoint = torch.load(checkpoint_path)
+    except RuntimeError:
+        checkpoint = torch.load(checkpoint_path, map_location=torch.device('cpu'))
     if args is None:
         args = checkpoint['args']
     
@@ -71,12 +73,13 @@ def load(checkpoint_path, args=None):
             bias_opt, step_size=args.lr_decay_step, gamma=args.lr_decay)
 
     epoch = checkpoint['epoch']
+    print('Loading data')
     for name, thing in zip(['model_state_dict', 'optimizer_state_dict', 'opt_scheduler_state_dict',
                             'opt_bias_state_dict', 'bias_opt_scheduler_state_dict',
                             'retraction_scheduler_state_dict'],
-                            [model, optimizer, scheduler, bias_opt,
-                             bias_scheduler, retractionScheduler]):
-        thing.load[checkpoint[name]]
+                           [model, optimizer, scheduler, bias_opt,
+                            bias_scheduler, retractionScheduler]):
+        thing.load_state_dict(checkpoint[name])
 
     model.eval()
 
