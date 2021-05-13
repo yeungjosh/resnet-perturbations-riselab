@@ -18,6 +18,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from resnet import ResNet
+from torchvision.models import mobilenet_v2
 
 import chop
 
@@ -270,10 +271,15 @@ class AverageMeter(object):
         return str(self.avg)
 
 
-def get_model_logpath(path):
+def get_model_logpath(path, args):
     filename, extension = os.path.splitext(path)
     time = datetime.strftime(datetime.now(), "%y%m%d_%H%M%S")
-    path = filename + time + extension
+    sp = args.l1_constraint_size
+    lr = args.nuc_constraint_size
+    depth = args.resnet_depth
+    if args.arch != 'resnet':
+        depth = ''
+    path = f'{filename}{args.arch}{depth}_lr:{lr}_sp:{sp}_{time}{extension}'
     return path
 
 
@@ -292,6 +298,7 @@ def main():
     # Training settings
     parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Example')
     parser.add_argument('--resnet_depth', type=int, default=20)
+    parser.add_argument('--arch', type=str, default='resnet')
     parser.add_argument('--batch_size', type=int, default=128, metavar='N',
                         help='input batch size for training (default: 64)')
     parser.add_argument('--test_batch_size', type=int, default=1000, metavar='N',
@@ -351,12 +358,15 @@ def main():
         args.batch_size, args.test_batch_size, num_workers=0)
 
     print("Preparing model...")
-    model = ResNet(depth=args.resnet_depth, num_classes=10).to(device)
+    if args.arch == 'resnet':
+        model = ResNet(depth=args.resnet_depth, num_classes=10).to(device)
+    else:
+        model = mobilenet_v2(pretrained=False, num_classes=10).to(device)
 
     if not os.path.exists('models/'):
         os.mkdir('models/')
     LOGPATH = "models/run.chkpt"
-    LOGPATH = get_model_logpath(LOGPATH)
+    LOGPATH = get_model_logpath(LOGPATH, args)
 
     if args.no_splitting:
         optimizer = torch.optim.SGD(
