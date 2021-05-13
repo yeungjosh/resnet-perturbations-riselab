@@ -51,25 +51,29 @@ def log_opt_state(opt, epoch, splitting=True):
     for group in opt.param_groups:
         for p in group['params']:
             state = opt.state[p]
-            _, s, _ = torch.linalg.svd(p)
-            singular_values.append(s.flatten().detach().cpu())
+            if p.ndim > 1:
+                # TODO: Make sure to reshape for conv layers
+                _, s, _ = torch.linalg.svd(p)
+                singular_values.append(s.flatten().detach().cpu())
             values.append(p.flatten().detach().cpu())
             if splitting:
+                # TODO: Make sure to reshape for conv layers
                 _, s, _ = torch.linalg.svd(state['y'])
                 singular_values_lr.append(s.flatten().detach().cpu())
                 values_sparse.append(state['x'].flatten().detach().cpu())
 
-    wandb.log({
+    log_dict = {
         "singular_values_of_parameter": wandb.Histogram(torch.cat(singular_values)),
         "values": wandb.Histogram(torch.cat(values)),
         "Epoch": epoch
-    })
+    }
+
     if splitting:
-        wandb.log({
+        log_dict.update({
             "sparse_component": wandb.Histogram(torch.cat(values_sparse)),
             "singular_values_of_lr_component": wandb.Histogram(torch.cat(singular_values_lr)),
-            "Epoch": epoch
-        })
+            })
+    wandb.log(log_dict)
 
 
 def get_sparsity_and_rank(opt, splitting=True):
@@ -82,7 +86,8 @@ def get_sparsity_and_rank(opt, splitting=True):
         for p in group['params']:
             if splitting:
                 state = opt.state[p]
-                nnzero += (state['x'] != 0).sum()
+                nnzero += torch.isclose(state['x'], torch.zeros_like(p)).sum()
+                # TODO: perform reshape for conv layer weight
                 ranks = torch.linalg.matrix_rank(state['y'])
 
             else:
@@ -93,7 +98,7 @@ def get_sparsity_and_rank(opt, splitting=True):
             n_params += p.numel()
             if p.ndim > 1:
                 total_rank += ranks.sum()
-                max_rank += min(p.shape) * ranks.numel()
+                max_rank += min(p.shape[-2:]) * ranks.numel()
 
     return nnzero / n_params, total_rank / max_rank
 
@@ -272,6 +277,16 @@ def get_model_logpath(path):
     return path
 
 
+class LMOConv(nn.Module):
+    def __init__(self, lmo_fun):
+        super().__init__()
+        self.lmo_fun = lmo_fun
+
+    def forward(self, u, v):
+        b, N, C, m, n = u.shape
+        update_dir, max_step_size = self.lmo_fun(u.reshape(b, N*C, m*n), v.reshape(b, N*C, m*n))
+        return update_dir.reshape(b, N, C, m, n), max_step_size
+
 def main():
 
     # Training settings
@@ -311,7 +326,7 @@ def main():
                         help='enable retraction of the learning rate')
     parser.add_argument('--no_splitting', action='store_true', default=False)
     parser.add_argument('--log_model_interval', type=int, default=10,
-                        help='how many batches to wait before saving the state of everything')
+                        help='how many epochs to wait before saving the state of everything')
 
     # You can also enable retraction of the learning rate, i.e.,
     # if enabled the learning rate
@@ -350,6 +365,7 @@ def main():
             optimizer, step_size=args.lr_decay_step, gamma=args.lr_decay)
         bias_opt = None
         bias_scheduler = None
+        retractionScheduler = None
     else:
         print("Make constraints...")
         constraints_sparsity = chop.constraints.make_model_constraints(model,
@@ -377,14 +393,9 @@ def main():
                     continue
                 if m == n == 1:
                     proxes[k], lmos[k], proxes_lr[k] = None, None, None
-
-        # function to reset metrics
-        def reset_metrics():
-            train_loss.reset()
-            train_accuracy.reset()
-
-            test_loss.reset()
-            test_accuracy.reset()
+            if 'conv' in name:
+                if lmos[k]:
+                    lmos[k] = LMOConv(lmos[k])
 
         print("Initialize optimizer...")
         optimizer = chop.stochastic.SplittingProxFW(model.parameters(),
@@ -406,7 +417,7 @@ def main():
             retractionScheduler = None
 
         bias_params = (param for param, lmo in zip(model.parameters(), lmos)
-                       if lmo is not None)
+                       if lmo is None)
         bias_opt = torch.optim.SGD(
             bias_params, lr=args.lr_bias, momentum=args.momentum)
         bias_scheduler = torch.optim.lr_scheduler.StepLR(
