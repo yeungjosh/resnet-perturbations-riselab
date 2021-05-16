@@ -87,7 +87,7 @@ def get_sparsity_and_rank(opt, splitting=True):
         for p in group['params']:
             if splitting:
                 state = opt.state[p]
-                nnzero += torch.isclose(state['x'], torch.zeros_like(p)).sum()
+                nnzero += (~torch.isclose(state['x'], torch.zeros_like(p))).sum()
                 # TODO: perform reshape for conv layer weight
                 ranks = torch.linalg.matrix_rank(state['y'])
 
