@@ -52,14 +52,17 @@ def log_opt_state(opt, epoch, splitting=True):
     for group in opt.param_groups:
         for p in group['params']:
             state = opt.state[p]
-            if p.ndim > 1:
-                # TODO: Make sure to reshape for conv layers
+            if p.ndim == 4:
+                _, s, _ = torch.linalg.svd(p.permute(2, 3, 0, 1))
+            else:
                 _, s, _ = torch.linalg.svd(p)
-                singular_values.append(s.flatten().detach().cpu())
+            singular_values.append(s.flatten().detach().cpu())
             values.append(p.flatten().detach().cpu())
             if splitting:
-                # TODO: Make sure to reshape for conv layers
-                _, s, _ = torch.linalg.svd(state['y'])
+                if p.ndim == 4:
+                    _, s, _ = torch.linalg.svd(state['y'].permute(2, 3, 0, 1))
+                else:
+                    _, s, _ = torch.linalg.svd(state['y'])
                 singular_values_lr.append(s.flatten().detach().cpu())
                 values_sparse.append(state['x'].flatten().detach().cpu())
 
@@ -290,11 +293,12 @@ class LMOConv(nn.Module):
 
     def forward(self, u, v):
         b, N, C, m, n = u.shape
-        update_dir, max_step_size = self.lmo_fun(u.reshape(b, N*C, m*n), v.reshape(b, N*C, m*n))
+        # print(u.shape, v.shape)
+        update_dir, max_step_size = self.lmo_fun(u.permute(0, 3, 4, 1, 2), v.permute(0, 3, 4, 1, 2))
         return update_dir.reshape(b, N, C, m, n), max_step_size
 
-def main():
 
+def main():
     # Training settings
     parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Example')
     parser.add_argument('--resnet_depth', type=int, default=20)
@@ -331,6 +335,8 @@ def main():
                         help='how many batches to wait before logging training status')
     parser.add_argument('--retraction', type=bool, default=True,
                         help='enable retraction of the learning rate')
+    parser.add_argument('--penalty', action='store_true', default=False,
+                        help='if passed, uses a penalized formulation rather than constrained.')
     parser.add_argument('--no_splitting', action='store_true', default=False)
     parser.add_argument('--log_model_interval', type=int, default=10,
                         help='how many epochs to wait before saving the state of everything')
@@ -377,30 +383,46 @@ def main():
         bias_scheduler = None
         retractionScheduler = None
     else:
-        print("Make constraints...")
-        constraints_sparsity = chop.constraints.make_model_constraints(model,
-                                                                       ord=1,
-                                                                       value=args.l1_constraint_size,
-                                                                       constrain_bias=False)
-        constraints_low_rank = chop.constraints.make_model_constraints(model,
-                                                                       ord='nuc',
-                                                                       value=args.nuc_constraint_size,
-                                                                       constrain_bias=False)
-        proxes = [constraint.prox if constraint else None
-                  for constraint in constraints_sparsity]
-        lmos = [constraint.lmo if constraint else None
-                for constraint in constraints_low_rank]
+        if args.penalty:
+            penalty_sparsity = chop.penalties.L1(args.l1_constraint_size)
+            penalty_low_rank = chop.penalties.NuclearNorm(args.l1_constraint_size)
+            lmos = []
+            proxes = []
+            proxes_lr = []
+            for name, param in model.named_parameters():
+                if param.ndim == 1:
+                    for oracle_list in (lmos, proxes, proxes_lr):
+                        oracle_list.append(None)
+                else:
+                    lmos.append(penalty_low_rank.lmo)
+                    proxes.append(penalty_sparsity.prox)
+                    proxes_lr.append(penalty_low_rank.prox)
+        else:
+            print("Make constraints...")
+            constraints_sparsity = chop.constraints.make_model_constraints(model,
+                                                                        ord=1,
+                                                                        value=args.l1_constraint_size,
+                                                                        constrain_bias=False)
+            constraints_low_rank = chop.constraints.make_model_constraints(model,
+                                                                        ord='nuc',
+                                                                        value=args.nuc_constraint_size,
+                                                                        constrain_bias=False)
+            proxes = [constraint.prox if constraint else None
+                    for constraint in constraints_sparsity]
+            lmos = [constraint.lmo if constraint else None
+                    for constraint in constraints_low_rank]
 
-        proxes_lr = [constraint.prox if constraint else None
-                     for constraint in constraints_low_rank]
+            proxes_lr = [constraint.prox if constraint else None
+                        for constraint in constraints_low_rank]
 
         # Unconstrain downsampling layers
         for k, (name, param) in enumerate(model.named_parameters()):
             if 'downsample' in name:
+                # import pdb; pdb.set_trace()
                 try:
                     *_, m, n = param.shape
                 except ValueError:
-                    continue
+                    pass
                 if m == n == 1:
                     proxes[k], lmos[k], proxes_lr[k] = None, None, None
             if 'conv' in name:
@@ -416,7 +438,8 @@ def main():
                                                     lipschitz=args.lipschitz,
                                                     momentum=args.momentum,
                                                     weight_decay=args.weight_decay,
-                                                    normalization=args.grad_norm)
+                                                    normalization=args.grad_norm,
+                                                    generalized_lmo=args.penalty)
 
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer, step_size=args.lr_decay_step, gamma=args.lr_decay)
