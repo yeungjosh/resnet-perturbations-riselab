@@ -21,6 +21,7 @@ import copy
 import pandas as pd
 import matplotlib.pyplot as plt
 
+### CONSTANTS ###
 base_path = 'Low Rank + Sparse Models'
 MODEL_PATHS = {
     'old-LR+SP': join(base_path, 'Pre-bug fix/run210507_015518 -- best performing LR + S model.chkpt'),
@@ -34,6 +35,7 @@ MODEL_PATHS = {
     'LR+SP'    : join(base_path, 'run210513_020800 -- nuc 100 l1 40.chkpt')
 }
 
+### BASIC TOOLS ###
 class LMOConv(nn.Module):
     def __init__(self, lmo_fun):
         super().__init__()
@@ -384,6 +386,7 @@ class AverageMeter(object):
 
 device = torch.device('cpu')
 
+
 def load(checkpoint_path, args=None, keep_sgd_optimizer=True):
     try:
         checkpoint = torch.load(checkpoint_path)
@@ -495,8 +498,8 @@ args = EasyDict({
     'retraction': True
 })
 
-### SEE RANK AND WEIGHT DISTRIBUTION
 
+### RANK AND WEIGHT DISTRIBUTION ###
 @torch.no_grad()
 def get_model_optimizer_and_copies(model_filepath, keep_sgd_optimizer=True):
     # does not support args
@@ -565,106 +568,60 @@ def plot_sp_and_lr(sp_values, lr_sing_values, model_name):
     g.set_yscale("log")
     plt.tight_layout()
     plt.savefig(f'{model_name}_analysis.pdf')
-  
+
 
 ### GLOBAL WEIGHT PRUNING ###
+def get_module_from_parameter(name, module, p, sensitivity=1e-2):
+    if ((hasattr(module, 'weight')) and 
+        ('downsample' not in name) and
+        (module.weight.shape == p.shape) and
+        (torch.allclose(module.weight, p))):
+        return module
 
-@torch.no_grad()
-def filter_smallest_els(t, fraction=.1):
-    orig_shape = t.shape
-    filtered = t.clone()
-    k = int(fraction * t.numel())
-    _, idx = abs(t).flatten().topk(k, largest=False)
-    filtered.flatten()[idx] = 0.
-    return filtered
-
-
-@torch.no_grad()
-def filter_smallest_sing_values(p, fraction=.1):
-    # out_channels, in_channels, w, h = p.shape
-    U, S, V = svd_on_parameter(p)
-    if S is None:
-        return p
-
-    k = int(fraction * S.numel())
-    _, idx = S.flatten().topk(k, largest=False)
-    S.flatten()[idx] = 0.
-    filtered_p = torch.matmul(U, torch.matmul(torch.diag_embed(S), 
-                                              V.transpose(-2, -1)))
-    if p.ndim == 4:
-        filtered_p = filtered_p.permute((3, 2, 0, 1))
-
-    return filtered_p
+  # go through each of the children
+    for name, child in module.named_children():
+        module = get_module_from_parameter(name, child, p)
+        if module is not None:
+            return module
 
 
 @torch.no_grad()
-def local_sparsify(model_name, model, optimizer, fraction_sp=0., fraction_lr=0):
-    if 'SGD' in model_name:
-        if fraction_sp > 0 and fraction_lr > 0:
-            print('ERROR: We should not prune both sp and lr at the same time for SGD models')
-            return None
-        for p in model.parameters():
-            if fraction_sp > 0:
-                new_data = filter_smallest_els(p[0], fraction_sp)
-            else:
-                new_data = filter_smallest_sing_values(p[0], fraction_lr)
-            p[0].data = new_data
+def sparsify_weights(model, optimizer, model_copy, optimizer_copy, fraction_sp=0., fraction_lr=0.):
+    # get the parameters we want to prune
+    parameters_to_prune = []
+    for p in optimizer_copy.param_groups[0]['params']:
+        module = get_module_from_parameter('model', model, p)
+        parameters_to_prune.append((module, 'weight'))
 
-    else:
-        for p in optimizer.param_groups[0]['params']:
-            sp = optimizer.state[p]['x'].clone()
+    # prune the parameters
+    prune.global_unstructured(
+        parameters_to_prune,
+        pruning_method=prune.L1Unstructured,
+        amount=fraction_sp,
+    )
+
+    # for each parameter, get the mask
+    for p in optimizer.param_groups[0]['params']:
+        module = get_module_from_parameter('model', model, p)
+        if module is None:
+            continue
+        mask = list(module.named_buffers())
+        if len(mask) > 1:
+            print('ERROR: Should not have more than one mask')
+        mask = mask[0][1].long()
+
+        if ('y' in optimizer.state[p]) and ('x' in optimizer.state[p]):    
             lr = optimizer.state[p]['y'].clone()
-            filtered_sp = filter_smallest_els(sp, fraction_sp)
-            filtered_lr = filter_smallest_sing_values(lr, fraction_lr)
-            p.copy_(filtered_lr + filtered_sp)
+            sp = optimizer.state[p]['x'].clone()
+            sp_masked = sp.data*mask
+            p.copy_(sp_masked+lr)
+        else:
+            p.copy_(p.data*mask)
 
     return model
 
 
-@torch.no_grad()
-def get_test_accuracy_for_local_pruning(model_name):
-    dataset = chop.utils.data.CIFAR10("~/datasets/")
-    loaders = dataset.loaders(128, 1000, num_workers=0)
-
-    df = pd.DataFrame(columns=['sp_pruned_fraction', 'lr_pruned_fraction', 'test_accuracy'])
-
-    sp_fraction_list = [0.]
-    lr_fraction_list = np.round(np.linspace(0, 1, 11), 2)
-
-    ix = 0
-    for fraction_sp in sp_fraction_list:    
-        for fraction_lr in lr_fraction_list:
-            (model, optimizer, scheduler, bias_opt, 
-             bias_scheduler, retractionScheduler, epoch) = load(model_paths[model_name])
-            model = local_sparsify(model_name, model, optimizer, fraction_sp, fraction_lr)
-            model.to(torch.device('cuda'))
-            test_accuracy = test(args, model, torch.device('cuda'), 
-                           loaders.test, optimizer, epoch='test')
-            df.loc[ix] = [fraction_sp, fraction_lr, test_accuracy]
-            ix += 1
-    return df
-
-
-@torch.no_grad()
-def display_prunning_results(df):
-    if (len(sp_fraction_list) > 1) and (len(lr_fraction_list) > 1):
-        heatmap_df = df.pivot(index='sp_pruned_fraction', columns='lr_pruned_fraction', 
-                          values='test_accuracy')
-        ax = sns.heatmap(heatmap_df);
-        ax.set_xlabel='Low Rank Pruned Fraction'
-        ax.set_ylabel='Sparse Pruned Fraction'
-
-    else:
-        ax = sns.lineplot(data=df, x='lr_pruned_fraction', y='test_accuracy', 
-                      style='sp_pruned_fraction', marker='o');
-        ax.set_xlabel('Low Ranked Pruned Fraction')
-        ax.set_ylabel('Test Accuracy')
-
-    return df.groupby(['sp_pruned_fraction',	'lr_pruned_fraction'])
-
 ### LOW RANK PRUNING ###
-
-#@title
 @torch.no_grad()
 def svd_on_parameter(p):
     if p.ndim == 4:
