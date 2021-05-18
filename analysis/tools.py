@@ -499,71 +499,72 @@ args = EasyDict({
 
 @torch.no_grad()
 def get_model_optimizer_and_copies(model_filepath, keep_sgd_optimizer=True):
-  # does not support args
-  model, optimizer, _, _, _, _, _ = load(model_filepath, keep_sgd_optimizer=keep_sgd_optimizer)
-  model_copy, optimizer_copy, _, _, _, _, _ = load(model_filepath, keep_sgd_optimizer=keep_sgd_optimizer)
+    # does not support args
+    model, optimizer, _, _, _, _, _ = load(model_filepath, keep_sgd_optimizer=keep_sgd_optimizer)
+    model_copy, optimizer_copy, _, _, _, _, _ = load(model_filepath, keep_sgd_optimizer=keep_sgd_optimizer)
 
-  return model, optimizer, model_copy, optimizer_copy
+    return model, optimizer, model_copy, optimizer_copy
 
 
 @torch.no_grad()
 def get_sparse_and_lr_components(optimizer):
-  sparse_comp, lr_comp = [], []
-  for p in optimizer.param_groups[0]['params']:
-      sparse_comp.append(optimizer.state[p]['x'])
-      lr_comp.append(optimizer.state[p]['y'])
-  return sparse_comp, lr_comp
+    sparse_comp, lr_comp = [], []
+    for p in optimizer.param_groups[0]['params']:
+        sparse_comp.append(optimizer.state[p]['x'])
+        lr_comp.append(optimizer.state[p]['y'])
+    return sparse_comp, lr_comp
 
 
 @torch.no_grad()
 def svd_on_parameter(p):
-  if p.ndim == 4:
-    p = p.permute((2, 3, 1, 0))
-  
-  U, S, V = None, None, None
-  if p.ndim >= 2:
-    U, S, V = torch.svd(p)
-  return U, S, V
+    if p.ndim == 4:
+        p = p.permute((2, 3, 1, 0))
+
+    U, S, V = None, None, None
+    if p.ndim >= 2:
+        U, S, V = torch.svd(p)
+        return U, S, V
 
 
 @torch.no_grad()
 def get_singular_values_from_parameter_list(parameters):
-  lr_sing_values = []
-  for p in parameters:
-    _, S, _ = svd_on_parameter(p)
-    if S is not None:
-      lr_sing_values.append(S.flatten())
+    lr_sing_values = []
+    for p in parameters:
+        _, S, _ = svd_on_parameter(p)
+        if S is not None:
+            lr_sing_values.append(S.flatten())
 
-  lr_sing_values = torch.cat(lr_sing_values).flatten()
-  return lr_sing_values
+    lr_sing_values = torch.cat(lr_sing_values).flatten()
+    return lr_sing_values
 
 
 @torch.no_grad()
 def analyze_lr_and_sp(model_name='LR'):
-  model, optimizer, scheduler, bias_opt, bias_scheduler, retractionScheduler, epoch = load(model_paths[model_name])
+    (model, optimizer, scheduler, bias_opt, 
+     bias_scheduler, retractionScheduler, epoch) = load(model_paths[model_name])
 
-  if 'SGD' not in model_name:
-    sparse_comp, lr_comp = get_sparse_and_lr_components(optimizer)
-  else:
-    params = [p[1].detach().cpu() for p in model.parameters()]
-    sparse_comp, lr_comp = params, params
+    if 'SGD' not in model_name:
+        sparse_comp, lr_comp = get_sparse_and_lr_components(optimizer)
+    else:
+        params = [p[1].detach().cpu() for p in model.parameters()]
+        sparse_comp, lr_comp = params, params
 
-  sp_values = torch.cat([x.flatten() for x in sparse_comp]).flatten()
-  lr_sing_values = get_singular_values_from_parameter_list(lr_comp)
+    sp_values = torch.cat([x.flatten() for x in sparse_comp]).flatten()
+    lr_sing_values = get_singular_values_from_parameter_list(lr_comp)
 
-  return sp_values, lr_sing_values
+    return sp_values, lr_sing_values
 
 
 @torch.no_grad()
 def plot_sp_and_lr(sp_values, lr_sing_values, model_name):
-  fig, axs = plt.subplots(1, 2, figsize=(10,3))
+    fig, axs = plt.subplots(1, 2, figsize=(10,3))
   # s = sns.histplot(sp_values.numpy(), log_scale=True, ax=axs[0]).set_title('Sparse Component - Hist')
-  s = sns.boxplot(sp_values.numpy(), ax=axs[0]).set_title(f'{model_name} - Sparse Component')
-  g = sns.histplot(lr_sing_values, log_scale=True, ax=axs[1], bins=40)
-  axs[1].set_title(f'{model_name} - Singular Values')
-  g.set_yscale("log")
-  plt.tight_layout()
-  plt.savefig(f'{model_name}_analysis.pdf')
+    s = sns.boxplot(sp_values.numpy(), ax=axs[0]).set_title(f'{model_name} - Sparse Component')
+    g = sns.histplot(lr_sing_values, log_scale=True, ax=axs[1], bins=40)
+    axs[1].set_title(f'{model_name} - Singular Values')
+    g.set_yscale("log")
+    plt.tight_layout()
+    plt.savefig(f'{model_name}_analysis.pdf')
   
 
 ### GLOBAL WEIGHT PRUNING ###
@@ -583,7 +584,7 @@ def filter_smallest_sing_values(p, fraction=.1):
     # out_channels, in_channels, w, h = p.shape
     U, S, V = svd_on_parameter(p)
     if S is None:
-      return p
+        return p
 
     k = int(fraction * S.numel())
     _, idx = S.flatten().topk(k, largest=False)
@@ -591,121 +592,122 @@ def filter_smallest_sing_values(p, fraction=.1):
     filtered_p = torch.matmul(U, torch.matmul(torch.diag_embed(S), 
                                               V.transpose(-2, -1)))
     if p.ndim == 4:
-       filtered_p = filtered_p.permute((3, 2, 0, 1))
+        filtered_p = filtered_p.permute((3, 2, 0, 1))
 
     return filtered_p
 
 
 @torch.no_grad()
 def local_sparsify(model_name, model, optimizer, fraction_sp=0., fraction_lr=0):
-  if 'SGD' in model_name:
-    if fraction_sp > 0 and fraction_lr > 0:
-      print('ERROR: We should not prune both sp and lr at the same time for SGD models')
-      return None
-    for p in model.parameters():
-      if fraction_sp > 0:
-        new_data = filter_smallest_els(p[0], fraction_sp)
-      else:
-        new_data = filter_smallest_sing_values(p[0], fraction_lr)
-      p[0].data = new_data
-  
-  else:
-    for p in optimizer.param_groups[0]['params']:
-      sp = optimizer.state[p]['x'].clone()
-      lr = optimizer.state[p]['y'].clone()
-      filtered_sp = filter_smallest_els(sp, fraction_sp)
-      filtered_lr = filter_smallest_sing_values(lr, fraction_lr)
-      p.copy_(filtered_lr + filtered_sp)
-  
-  return model
+    if 'SGD' in model_name:
+        if fraction_sp > 0 and fraction_lr > 0:
+            print('ERROR: We should not prune both sp and lr at the same time for SGD models')
+            return None
+        for p in model.parameters():
+            if fraction_sp > 0:
+                new_data = filter_smallest_els(p[0], fraction_sp)
+            else:
+                new_data = filter_smallest_sing_values(p[0], fraction_lr)
+            p[0].data = new_data
+
+    else:
+        for p in optimizer.param_groups[0]['params']:
+            sp = optimizer.state[p]['x'].clone()
+            lr = optimizer.state[p]['y'].clone()
+            filtered_sp = filter_smallest_els(sp, fraction_sp)
+            filtered_lr = filter_smallest_sing_values(lr, fraction_lr)
+            p.copy_(filtered_lr + filtered_sp)
+
+    return model
 
 
 @torch.no_grad()
 def get_test_accuracy_for_local_pruning(model_name):
-  dataset = chop.utils.data.CIFAR10("~/datasets/")
-  loaders = dataset.loaders(128, 1000, num_workers=0)
-  
-  df = pd.DataFrame(columns=['sp_pruned_fraction', 'lr_pruned_fraction', 'test_accuracy'])
+    dataset = chop.utils.data.CIFAR10("~/datasets/")
+    loaders = dataset.loaders(128, 1000, num_workers=0)
 
-  sp_fraction_list = [0.]
-  lr_fraction_list = np.round(np.linspace(0, 1, 11), 2)
+    df = pd.DataFrame(columns=['sp_pruned_fraction', 'lr_pruned_fraction', 'test_accuracy'])
 
-  ix = 0
-  for fraction_sp in sp_fraction_list:    
-    for fraction_lr in lr_fraction_list:
-      model, optimizer, scheduler, bias_opt, bias_scheduler, retractionScheduler, epoch = load(model_paths[model_name])
-      model = local_sparsify(model_name, model, optimizer, fraction_sp, fraction_lr)
-      model.to(torch.device('cuda'))
-      test_accuracy = test(args, model, torch.device('cuda'), 
+    sp_fraction_list = [0.]
+    lr_fraction_list = np.round(np.linspace(0, 1, 11), 2)
+
+    ix = 0
+    for fraction_sp in sp_fraction_list:    
+        for fraction_lr in lr_fraction_list:
+            (model, optimizer, scheduler, bias_opt, 
+             bias_scheduler, retractionScheduler, epoch) = load(model_paths[model_name])
+            model = local_sparsify(model_name, model, optimizer, fraction_sp, fraction_lr)
+            model.to(torch.device('cuda'))
+            test_accuracy = test(args, model, torch.device('cuda'), 
                            loaders.test, optimizer, epoch='test')
-      df.loc[ix] = [fraction_sp, fraction_lr, test_accuracy]
-      ix += 1
-  return df
+            df.loc[ix] = [fraction_sp, fraction_lr, test_accuracy]
+            ix += 1
+    return df
 
 
 @torch.no_grad()
 def display_prunning_results(df):
-  if (len(sp_fraction_list) > 1) and (len(lr_fraction_list) > 1):
-    heatmap_df = df.pivot(index='sp_pruned_fraction', columns='lr_pruned_fraction', 
+    if (len(sp_fraction_list) > 1) and (len(lr_fraction_list) > 1):
+        heatmap_df = df.pivot(index='sp_pruned_fraction', columns='lr_pruned_fraction', 
                           values='test_accuracy')
-    ax = sns.heatmap(heatmap_df);
-    ax.set_xlabel='Low Rank Pruned Fraction'
-    ax.set_ylabel='Sparse Pruned Fraction'
+        ax = sns.heatmap(heatmap_df);
+        ax.set_xlabel='Low Rank Pruned Fraction'
+        ax.set_ylabel='Sparse Pruned Fraction'
 
-  else:
-    ax = sns.lineplot(data=df, x='lr_pruned_fraction', y='test_accuracy', 
+    else:
+        ax = sns.lineplot(data=df, x='lr_pruned_fraction', y='test_accuracy', 
                       style='sp_pruned_fraction', marker='o');
-    ax.set_xlabel('Low Ranked Pruned Fraction')
-    ax.set_ylabel('Test Accuracy')
+        ax.set_xlabel('Low Ranked Pruned Fraction')
+        ax.set_ylabel('Test Accuracy')
 
-  df.groupby(['sp_pruned_fraction',	'lr_pruned_fraction'])
+    return df.groupby(['sp_pruned_fraction',	'lr_pruned_fraction'])
 
 ### LOW RANK PRUNING ###
 
 #@title
 @torch.no_grad()
 def svd_on_parameter(p):
-  if p.ndim == 4:
-    p = p.permute((2, 3, 1, 0)).clone()
+    if p.ndim == 4:
+        p = p.permute((2, 3, 1, 0)).clone()
 
-  U, S, VT = None, None, None
-  if p.ndim >= 2:
-    U, S, VT = torch.linalg.svd(p, full_matrices=False)
-  return U, S, VT
+    U, S, VT = None, None, None
+    if p.ndim >= 2:
+        U, S, VT = torch.linalg.svd(p, full_matrices=False)
+    return U, S, VT
 
 
 @torch.no_grad()
 def prune_sv_for_parameter(p, fraction_lr=0.):
-  U, S, VT = svd_on_parameter(p)
+    U, S, VT = svd_on_parameter(p)
 
-  filtered_S = S.flatten()
-  k = int(fraction_lr * len(filtered_S))
-  _, idx = filtered_S.topk(k, largest=False)
-  filtered_S.flatten()[idx] = 0.
+    filtered_S = S.flatten()
+    k = int(fraction_lr * len(filtered_S))
+    _, idx = filtered_S.topk(k, largest=False)
+    filtered_S.flatten()[idx] = 0.
 
-  filtered_P = U @ torch.diag_embed(filtered_S.reshape(S.shape)) @ VT
-  # filtered_P = U @ torch.diag_embed(S) @ VT
-  if p.ndim == 4:
-    filtered_P = filtered_P.permute((3, 2, 0, 1))
-  return filtered_P
+    filtered_P = U @ torch.diag_embed(filtered_S.reshape(S.shape)) @ VT
+    # filtered_P = U @ torch.diag_embed(S) @ VT
+    if p.ndim == 4:
+        filtered_P = filtered_P.permute((3, 2, 0, 1))
+    return filtered_P
 
 
 @torch.no_grad()
 def sv_sparsify(model, optimizer, model_copy, optimizer_copy,
                 fraction_sp=0., fraction_lr=0.):
-  # deal with the case of having low_rank
-  for p in optimizer.param_groups[0]['params']:
-    if 'y' in optimizer_copy.state[p]:
-      low_rank = optimizer_copy.state[p]['y'].clone()
-      pruned_low_rank = prune_sv_for_parameter(low_rank, fraction_lr)
-      sparse = optimizer_copy.state[p]['x'].clone()
-      if sparse is None:
-        p.copy_(pruned_low_rank)
-      else:
-        p.copy_(pruned_low_rank + sparse)
-    else:
-      pruned_low_rank = prune_sv_for_parameter(p.clone(), fraction_lr)
-      p.copy_(pruned_low_rank)
+    # deal with the case of having low_rank
+    for p in optimizer.param_groups[0]['params']:
+        if 'y' in optimizer_copy.state[p]:
+            low_rank = optimizer_copy.state[p]['y'].clone()
+            pruned_low_rank = prune_sv_for_parameter(low_rank, fraction_lr)
+            sparse = optimizer_copy.state[p]['x'].clone()
+            if sparse is None:
+                p.copy_(pruned_low_rank)
+            else:
+                p.copy_(pruned_low_rank + sparse)
+        else:
+            pruned_low_rank = prune_sv_for_parameter(p.clone(), fraction_lr)
+            p.copy_(pruned_low_rank)
 
-  return model
+    return model
 
