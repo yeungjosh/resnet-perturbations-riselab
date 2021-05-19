@@ -25,21 +25,6 @@ import chop
 import wandb
 
 
-# Hyperparam setup
-# default_config = {
-#     'lr': 1e-10,
-#     # 'lr_prox': 'sublinear',
-#     'momentum': .9,
-#     'weight_decay': 1e-5,
-#     'lr_bias': 0.01,
-#     'grad_norm': 'none',
-#     'l1_constraint_size': 5e2,
-#     'nuc_constraint_size': 5e2,
-#     'epochs': 2,
-#     'seed': 0
-# }
-
-
 
 def log_opt_state(opt, epoch, splitting=True):
     singular_values = []
