@@ -366,7 +366,9 @@ def main():
 
     print("Preparing model...")
     if args.arch == 'resnet':
-        model = ResNet(depth=args.resnet_depth, num_classes=10).to(device)
+        # model = ResNet(depth=args.resnet_depth, num_classes=10).to(device)
+        # TODO: MAKE THIS BETTER
+        model = torch.resnet18(num_classes=10).to(device)
     else:
         model = mobilenet_v2(pretrained=False, num_classes=10).to(device)
 
