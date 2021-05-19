@@ -26,21 +26,19 @@ import wandb
 
 
 # Hyperparam setup
-default_config = {
-    'lr': 1e-10,
-    # 'lr_prox': 'sublinear',
-    'momentum': .9,
-    'weight_decay': 1e-5,
-    'lr_bias': 0.01,
-    'grad_norm': 'none',
-    'l1_constraint_size': 5e2,
-    'nuc_constraint_size': 5e2,
-    'epochs': 2,
-    'seed': 0
-}
+# default_config = {
+#     'lr': 1e-10,
+#     # 'lr_prox': 'sublinear',
+#     'momentum': .9,
+#     'weight_decay': 1e-5,
+#     'lr_bias': 0.01,
+#     'grad_norm': 'none',
+#     'l1_constraint_size': 5e2,
+#     'nuc_constraint_size': 5e2,
+#     'epochs': 2,
+#     'seed': 0
+# }
 
-wandb.init(project='low-rank_sparse_cifar10', config=default_config)
-config = wandb.config
 
 
 def log_opt_state(opt, epoch, splitting=True):
@@ -117,6 +115,9 @@ def train(args, model, device, train_loader, opt, opt_bias, epoch, train_loss, s
             opt_bias.zero_grad()
         output = model(data)
         loss = F.cross_entropy(output, target)
+        # TODO: figure out subgradient descent with L1 penalty
+        # if args.penalty and not splitting:
+        #     loss += ell1_penalty(parameters, scale)
         loss.backward()
         if loss.isnan():
             warnings.warn("Train loss is nan.")
@@ -335,7 +336,7 @@ def main():
                         help='how many batches to wait before logging training status')
     parser.add_argument('--retraction', type=bool, default=True,
                         help='enable retraction of the learning rate')
-    parser.add_argument('--penalty', action='store_true', default=False,
+    parser.add_argument('--penalty', type=bool, default=False,
                         help='if passed, uses a penalized formulation rather than constrained.')
     parser.add_argument('--no_splitting', action='store_true', default=False)
     parser.add_argument('--log_model_interval', type=int, default=10,
@@ -352,7 +353,7 @@ def main():
     if args.lr != 'sublinear':
         args.lr = float(args.lr)
 
-    wandb.config.update(args, allow_val_change=True)
+    wandb.init(project='low-rank_sparse_cifar10', config=args)
 
     torch.manual_seed(args.seed)
 
