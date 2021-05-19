@@ -19,6 +19,7 @@ from torch import nn
 from torch.nn import functional as F
 from resnet import ResNet
 from torchvision.models import mobilenet_v2
+import torchvision.models as models
 
 import chop
 
@@ -353,7 +354,7 @@ def main():
     if args.arch == 'resnet':
         # model = ResNet(depth=args.resnet_depth, num_classes=10).to(device)
         # TODO: MAKE THIS BETTER
-        model = torch.resnet18(num_classes=10).to(device)
+        model = models.resnet18(num_classes=10).to(device)
     else:
         model = mobilenet_v2(pretrained=False, num_classes=10).to(device)
 
