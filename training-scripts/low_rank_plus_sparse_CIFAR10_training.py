@@ -51,7 +51,7 @@ def log_opt_state(opt, epoch, splitting=True):
                 values_sparse.append(state['x'].flatten().detach().cpu())
 
     log_dict = {
-        "singular_values_of_parameter": wandb.Histogram(torch.cat(singular_values)),
+        "singular_values_of_parameter": wandb.Histogram(torch.clamp(torch.cat(singular_values), 1e-8)),
         "values": wandb.Histogram(torch.cat(values)),
         "Epoch": epoch
     }
@@ -65,6 +65,7 @@ def log_opt_state(opt, epoch, splitting=True):
 
 
 def get_sparsity_and_rank(opt, splitting=True):
+    threshold = 1e-8
     nnzero = 0
     n_params = 0
     total_rank = 0
@@ -79,7 +80,7 @@ def get_sparsity_and_rank(opt, splitting=True):
                 ranks = torch.linalg.matrix_rank(state['y'])
 
             else:
-                nnzero += (p != 0).sum()
+                nnzero += (p >= threshold).sum()
                 if p.ndim > 1:
                     ranks = torch.linalg.matrix_rank(p)
 

@@ -1,3 +1,6 @@
+### ------- ###
+### IMPORTS ###
+### ------- ###
 import torch.nn as nn
 import math
 import torch
@@ -14,6 +17,7 @@ from tqdm import tqdm
 import torch.nn.functional as F
 
 from torch.nn.utils import prune
+import torchvision.models as models
 import re
 
 import copy
@@ -21,7 +25,10 @@ import copy
 import pandas as pd
 import matplotlib.pyplot as plt
 
+
+### --------- ###
 ### CONSTANTS ###
+### --------- ###
 base_path = 'Low Rank + Sparse Models'
 MODEL_PATHS = {
     'old-LR+SP': join(base_path, 'Pre-bug fix/run210507_015518 -- best performing LR + S model.chkpt'),
@@ -32,10 +39,15 @@ MODEL_PATHS = {
     'LR_old'   : join(base_path, 'run210513_020753 -- nuc 150 l1 0.chkpt'),
     'LR'       : join(base_path, 'run210514_130300 -- Best Perf Conv reshape.chkpt'),
     'SP'       : join(base_path, 'run210513_020757 -- nuc 0 l1 80.chkpt'),
-    'LR+SP'    : join(base_path, 'run210513_020800 -- nuc 100 l1 40.chkpt')
+    'LR+SP'    : join(base_path, 'run210513_020800 -- nuc 100 l1 40.chkpt'),
+    'L1_LR+SP'    : join('/scratch/data/models/runresnet20_lr:0.293157841700743_sp:2.2747436939077834e-07_210518_012327.chkpt'),
+    'new': join(base_path, 'deft-sweep-23.chkpt'),
 }
 
+
+### ----------- ###
 ### BASIC TOOLS ###
+### ----------- ###
 class LMOConv(nn.Module):
     def __init__(self, lmo_fun):
         super().__init__()
@@ -258,6 +270,7 @@ class ResNet(nn.Module):
 
         return x
 
+    
 def test(model, device, test_loader, opt, epoch, splitting=True):
     model.eval()
     test_loss = 0
@@ -280,6 +293,7 @@ def test(model, device, test_loader, opt, epoch, splitting=True):
         test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
     return correct / len(test_loader.dataset)
+
 
 class RetractionLR(torch.optim.lr_scheduler._LRScheduler):
     """
@@ -395,7 +409,10 @@ def load(checkpoint_path, args=None, keep_sgd_optimizer=True):
     if args is None:
         args = checkpoint['args']
     
-    model = ResNet(depth=args.resnet_depth, num_classes=10).to(device)
+    if 'sweep' in checkpoint_path:
+        model = models.resnet18(num_classes=10).to(device)
+    else:
+        model = ResNet(depth=args.resnet_depth, num_classes=10).to(device)
 
     if args.no_splitting and keep_sgd_optimizer:
         optimizer = torch.optim.SGD(
@@ -410,11 +427,13 @@ def load(checkpoint_path, args=None, keep_sgd_optimizer=True):
         constraints_sparsity = chop.constraints.make_model_constraints(model,
                                                                        ord=1,
                                                                        value=args.l1_constraint_size,
-                                                                       constrain_bias=False)
+                                                                       constrain_bias=False,
+                                                                      mode='radius')
         constraints_low_rank = chop.constraints.make_model_constraints(model,
                                                                        ord='nuc',
                                                                        value=args.nuc_constraint_size,
-                                                                       constrain_bias=False)
+                                                                       constrain_bias=False,
+                                                                      mode='radius')
         proxes = [constraint.prox if constraint else None
                   for constraint in constraints_sparsity]
         lmos = [constraint.lmo if constraint else None
@@ -499,7 +518,9 @@ args = EasyDict({
 })
 
 
+### ---------------------------- ###
 ### RANK AND WEIGHT DISTRIBUTION ###
+### ---------------------------- ###
 @torch.no_grad()
 def get_model_optimizer_and_copies(model_filepath, keep_sgd_optimizer=True):
     # does not support args
@@ -528,7 +549,7 @@ def svd_on_parameter(p):
         U, S, V = torch.svd(p)
         return U, S, V
 
-
+    
 @torch.no_grad()
 def get_singular_values_from_parameter_list(parameters):
     lr_sing_values = []
@@ -536,6 +557,8 @@ def get_singular_values_from_parameter_list(parameters):
         _, S, _ = svd_on_parameter(p)
         if S is not None:
             lr_sing_values.append(S.flatten())
+    # TODO: REMOVE
+        break
 
     lr_sing_values = torch.cat(lr_sing_values).flatten()
     return lr_sing_values
@@ -544,7 +567,7 @@ def get_singular_values_from_parameter_list(parameters):
 @torch.no_grad()
 def analyze_lr_and_sp(model_name='LR'):
     (model, optimizer, scheduler, bias_opt, 
-     bias_scheduler, retractionScheduler, epoch) = load(model_paths[model_name])
+     bias_scheduler, retractionScheduler, epoch) = load(MODEL_PATHS[model_name])
 
     if 'SGD' not in model_name:
         sparse_comp, lr_comp = get_sparse_and_lr_components(optimizer)
@@ -569,8 +592,10 @@ def plot_sp_and_lr(sp_values, lr_sing_values, model_name):
     plt.tight_layout()
     plt.savefig(f'{model_name}_analysis.pdf')
 
-
+    
+### --------------------- ###
 ### GLOBAL WEIGHT PRUNING ###
+### --------------------- ###
 def get_module_from_parameter(name, module, p, sensitivity=1e-2):
     if ((hasattr(module, 'weight')) and 
         ('downsample' not in name) and
@@ -586,7 +611,7 @@ def get_module_from_parameter(name, module, p, sensitivity=1e-2):
 
 
 @torch.no_grad()
-def sparsify_weights(model, optimizer, model_copy, optimizer_copy, fraction_sp=0., fraction_lr=0.):
+def sparsify_weights(model, optimizer, model_copy, optimizer_copy, pruning_pct=0.):
     # get the parameters we want to prune
     parameters_to_prune = []
     for p in optimizer_copy.param_groups[0]['params']:
@@ -594,10 +619,11 @@ def sparsify_weights(model, optimizer, model_copy, optimizer_copy, fraction_sp=0
         parameters_to_prune.append((module, 'weight'))
 
     # prune the parameters
+    print(parameters_to_prune)
     prune.global_unstructured(
         parameters_to_prune,
         pruning_method=prune.L1Unstructured,
-        amount=fraction_sp,
+        amount=pruning_pct,
     )
 
     # for each parameter, get the mask
@@ -621,15 +647,18 @@ def sparsify_weights(model, optimizer, model_copy, optimizer_copy, fraction_sp=0
     return model
 
 
+### ---------------- ###
 ### LOW RANK PRUNING ###
+### ---------------- ###
 @torch.no_grad()
 def svd_on_parameter(p):
-    if p.ndim == 4:
-        p = p.permute((2, 3, 1, 0)).clone()
+    q = p.clone()
+    if q.ndim == 4:
+        q = q.permute((2, 3, 1, 0))
 
     U, S, VT = None, None, None
-    if p.ndim >= 2:
-        U, S, VT = torch.linalg.svd(p, full_matrices=False)
+    if q.ndim >= 2:
+        U, S, VT = torch.linalg.svd(q, full_matrices=False)
     return U, S, VT
 
 
@@ -638,33 +667,61 @@ def prune_sv_for_parameter(p, fraction_lr=0.):
     U, S, VT = svd_on_parameter(p)
 
     filtered_S = S.flatten()
-    k = int(fraction_lr * len(filtered_S))
-    _, idx = filtered_S.topk(k, largest=False)
-    filtered_S.flatten()[idx] = 0.
+    mask = torch.cumsum(S, dim=-1) > (1-fraction_lr) * S.sum(-1, keepdim=True)
+    S[mask] = 0
+    
+#     k = int(fraction_lr * len(filtered_S))
+#     _, idx = filtered_S.topk(k, largest=False)
+#     filtered_S.flatten()[idx] = 0.
 
-    filtered_P = U @ torch.diag_embed(filtered_S.reshape(S.shape)) @ VT
+#     filtered_P = U @ torch.diag_embed(filtered_S.reshape(S.shape)) @ VT
+    filtered_P = U @ torch.diag_embed(S.reshape(S.shape)) @ VT
+
+    k = (~mask).sum()
+    if p.ndim == 2:
+        print(p.shape)
+        m, n = p.shape
+        initial_cost = m*n
+        compressed_cost = k*(m+n)
+        
     # filtered_P = U @ torch.diag_embed(S) @ VT
     if p.ndim == 4:
+        N, C, m, n = p.shape
+        initial_cost = N*C*m*n
+        compressed_cost = k*(N+C)
+        
         filtered_P = filtered_P.permute((3, 2, 0, 1))
-    return filtered_P
+        
+    return filtered_P, initial_cost, compressed_cost
 
 
 @torch.no_grad()
-def sv_sparsify(model, optimizer, model_copy, optimizer_copy,
-                fraction_sp=0., fraction_lr=0.):
+def sparsify_singular_values(model, optimizer, model_copy, optimizer_copy, pruning_pct=0.):
     # deal with the case of having low_rank
+    non_pruned_cost, pruned_cost = 0, 0
     for p in optimizer.param_groups[0]['params']:
         if 'y' in optimizer_copy.state[p]:
             low_rank = optimizer_copy.state[p]['y'].clone()
-            pruned_low_rank = prune_sv_for_parameter(low_rank, fraction_lr)
+            pruned_low_rank, initial_cost, compressed_cost = prune_sv_for_parameter(low_rank,
+                                                                                    pruning_pct)
+            non_pruned_cost += initial_cost
+            pruned_cost += compressed_cost
             sparse = optimizer_copy.state[p]['x'].clone()
             if sparse is None:
                 p.copy_(pruned_low_rank)
             else:
                 p.copy_(pruned_low_rank + sparse)
         else:
-            pruned_low_rank = prune_sv_for_parameter(p.clone(), fraction_lr)
+            pruned_low_rank, initial_cost, compressed_cost = prune_sv_for_parameter(p.clone(), 
+                                                                                    pruning_pct)
+            non_pruned_cost += initial_cost
+            pruned_cost += compressed_cost
             p.copy_(pruned_low_rank)
+    
+    print(f'total non_pruned_cost: {non_pruned_cost}')
+    print(f'total pruned_cost: {pruned_cost}')
+    print(f'compression ratio: {non_pruned_cost/pruned_cost}')
 
-    return model
+    return model, non_pruned_cost, pruned_cost
+
 
