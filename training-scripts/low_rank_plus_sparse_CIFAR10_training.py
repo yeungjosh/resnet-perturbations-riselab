@@ -74,20 +74,33 @@ def get_sparsity_and_rank(opt, splitting=True):
         for p in group['params']:
             if splitting:
                 state = opt.state[p]
+<<<<<<< HEAD
                 nnzero += (~torch.isclose(state['x'],
                            torch.zeros_like(p))).sum()
                 # TODO: perform reshape for conv layer weight
+=======
+                nnzero += (~torch.isclose(state['x'], torch.zeros_like(p))).sum()
+                if p.ndim == 4:
+                    ranks = torch.linalg.matrix_rank(state['y'].clone().permute((2, 3, 1, 0)))
+
+>>>>>>> 1541bc6080c9504c6d9b729c57bff37a9b15f653
                 ranks = torch.linalg.matrix_rank(state['y'])
 
             else:
-                nnzero += (p >= threshold).sum()
+                nnzero += (torch.abs(p) >= threshold).sum()
+                if p.ndim == 4:
+                    ranks = torch.linalg.matrix_rank(p.clone().permute((2, 3, 1, 0)))
                 if p.ndim > 1:
                     ranks = torch.linalg.matrix_rank(p)
 
             n_params += p.numel()
+            
+            q = p.clone()
+            if p.ndim == 4:
+                q = p.clone().permute((2, 3, 1, 0))
             if p.ndim > 1:
                 total_rank += ranks.sum()
-                max_rank += min(p.shape[-2:]) * ranks.numel()
+                max_rank += min(q.shape[-2:]) * ranks.numel()
 
     return nnzero / n_params, total_rank / max_rank
 
