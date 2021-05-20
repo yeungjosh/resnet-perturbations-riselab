@@ -26,7 +26,6 @@ import chop
 import wandb
 
 
-
 def log_opt_state(opt, epoch, splitting=True):
     singular_values = []
     values = []
@@ -60,7 +59,7 @@ def log_opt_state(opt, epoch, splitting=True):
         log_dict.update({
             "sparse_component": wandb.Histogram(torch.cat(values_sparse)),
             "singular_values_of_lr_component": wandb.Histogram(torch.cat(singular_values_lr)),
-            })
+        })
     wandb.log(log_dict)
 
 
@@ -75,7 +74,8 @@ def get_sparsity_and_rank(opt, splitting=True):
         for p in group['params']:
             if splitting:
                 state = opt.state[p]
-                nnzero += (~torch.isclose(state['x'], torch.zeros_like(p))).sum()
+                nnzero += (~torch.isclose(state['x'],
+                           torch.zeros_like(p))).sum()
                 # TODO: perform reshape for conv layer weight
                 ranks = torch.linalg.matrix_rank(state['y'])
 
@@ -282,7 +282,8 @@ class LMOConv(nn.Module):
     def forward(self, u, v):
         b, N, C, m, n = u.shape
         # print(u.shape, v.shape)
-        update_dir, max_step_size = self.lmo_fun(u.permute(0, 3, 4, 1, 2), v.permute(0, 3, 4, 1, 2))
+        update_dir, max_step_size = self.lmo_fun(
+            u.permute(0, 3, 4, 1, 2), v.permute(0, 3, 4, 1, 2))
         return update_dir.reshape(b, N, C, m, n), max_step_size
 
 
@@ -373,37 +374,24 @@ def main():
         bias_scheduler = None
         retractionScheduler = None
     else:
-        if args.penalty:
-            penalty_sparsity = chop.penalties.L1(args.l1_constraint_size)
-            penalty_low_rank = chop.penalties.NuclearNorm(args.l1_constraint_size)
-            lmos = []
-            proxes = []
-            proxes_lr = []
-            for name, param in model.named_parameters():
-                if param.ndim == 1:
-                    for oracle_list in (lmos, proxes, proxes_lr):
-                        oracle_list.append(None)
-                else:
-                    lmos.append(penalty_low_rank.lmo)
-                    proxes.append(penalty_sparsity.prox)
-                    proxes_lr.append(penalty_low_rank.prox)
-        else:
-            print("Make constraints...")
-            constraints_sparsity = chop.constraints.make_model_constraints(model,
-                                                                        ord=1,
-                                                                        value=args.l1_constraint_size,
-                                                                        constrain_bias=False)
-            constraints_low_rank = chop.constraints.make_model_constraints(model,
-                                                                        ord='nuc',
-                                                                        value=args.nuc_constraint_size,
-                                                                        constrain_bias=False)
-            proxes = [constraint.prox if constraint else None
-                    for constraint in constraints_sparsity]
-            lmos = [constraint.lmo if constraint else None
-                    for constraint in constraints_low_rank]
+        print("Make constraints/penalties...")
+        constraints_sparsity = chop.constraints.make_model_constraints(model,
+                                                                       ord=1,
+                                                                       value=args.l1_constraint_size,
+                                                                       constrain_bias=False,
+                                                                       penalty=args.penalty)
+        constraints_low_rank = chop.constraints.make_model_constraints(model,
+                                                                       ord='nuc',
+                                                                       value=args.nuc_constraint_size,
+                                                                       constrain_bias=False,
+                                                                       penalty=args.penalty)
+        proxes = [constraint.prox if constraint else None
+                  for constraint in constraints_sparsity]
+        lmos = [constraint.lmo if constraint else None
+                for constraint in constraints_low_rank]
 
-            proxes_lr = [constraint.prox if constraint else None
-                        for constraint in constraints_low_rank]
+        proxes_lr = [constraint.prox if constraint else None
+                     for constraint in constraints_low_rank]
 
         # Unconstrain downsampling layers
         for k, (name, param) in enumerate(model.named_parameters()):
