@@ -331,7 +331,7 @@ def main():
                         help='how many batches to wait before logging training status')
     parser.add_argument('--retraction', type=bool, default=True,
                         help='enable retraction of the learning rate')
-    parser.add_argument('--penalty', default=True,
+    parser.add_argument('--penalty', default=False,
                         help='if passed, uses a penalized formulation rather than constrained.')
     parser.add_argument('--no_splitting', action='store_true', default=False)
     parser.add_argument('--log_model_interval', type=int, default=10,
