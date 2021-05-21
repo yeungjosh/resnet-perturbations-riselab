@@ -294,6 +294,9 @@ class LMOConv(nn.Module):
         return update_dir.reshape(b, N, C, m, n), max_step_size
 
 
+def process_bool_flag(args, key):
+    
+
 def main():
     # Training settings
     parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Example')
@@ -354,6 +357,13 @@ def main():
         args.penalty = True
     else:
         raise ValueError("args.penalty was not understood. Please use 'True' or 'False'.")
+
+    if args.retraction in ('false', 'False', 'f', 'F', False, ''):
+        args.retraction = False
+    elif args.retraction in ('true', 'True', 't', 'T', True):
+        args.retraction = True
+    else:
+        raise ValueError("args.retraction was not understood. Please use 'True' or 'False'.")
 
     wandb.init(project='low-rank_sparse_cifar10', config=args)
 
