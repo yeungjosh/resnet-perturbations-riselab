@@ -41,7 +41,8 @@ MODEL_PATHS = {
     'SP'       : join(base_path, 'run210513_020757 -- nuc 0 l1 80.chkpt'),
     'LR+SP'    : join(base_path, 'run210513_020800 -- nuc 100 l1 40.chkpt'),
     'L1_LR+SP'    : join('/scratch/data/models/runresnet20_lr:0.293157841700743_sp:2.2747436939077834e-07_210518_012327.chkpt'),
-    'new': join(base_path, 'deft-sweep-23.chkpt'),
+    'wednesday_sp_works': join(base_path, 'deft-sweep-23.chkpt'),
+    'new': join(base_path, 'flowing-sweep-68.chkpt'),
 }
 
 
