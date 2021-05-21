@@ -74,16 +74,10 @@ def get_sparsity_and_rank(opt, splitting=True):
         for p in group['params']:
             if splitting:
                 state = opt.state[p]
-<<<<<<< HEAD
-                nnzero += (~torch.isclose(state['x'],
-                           torch.zeros_like(p))).sum()
-                # TODO: perform reshape for conv layer weight
-=======
                 nnzero += (~torch.isclose(state['x'], torch.zeros_like(p))).sum()
                 if p.ndim == 4:
                     ranks = torch.linalg.matrix_rank(state['y'].clone().permute((2, 3, 1, 0)))
 
->>>>>>> 1541bc6080c9504c6d9b729c57bff37a9b15f653
                 ranks = torch.linalg.matrix_rank(state['y'])
 
             else:
@@ -408,14 +402,6 @@ def main():
 
         # Unconstrain downsampling layers
         for k, (name, param) in enumerate(model.named_parameters()):
-            if 'downsample' in name:
-                # import pdb; pdb.set_trace()
-                try:
-                    *_, m, n = param.shape
-                except ValueError:
-                    pass
-                if m == n == 1:
-                    proxes[k], lmos[k], proxes_lr[k] = None, None, None
             if 'conv' in name:
                 if lmos[k]:
                     lmos[k] = LMOConv(lmos[k])
