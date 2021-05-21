@@ -74,20 +74,27 @@ def get_sparsity_and_rank(opt, splitting=True):
         for p in group['params']:
             if splitting:
                 state = opt.state[p]
-                nnzero += (~torch.isclose(state['x'],
-                           torch.zeros_like(p))).sum()
-                # TODO: perform reshape for conv layer weight
+                nnzero += (~torch.isclose(state['x'], torch.zeros_like(p))).sum()
+                if p.ndim == 4:
+                    ranks = torch.linalg.matrix_rank(state['y'].clone().permute((2, 3, 1, 0)))
+
                 ranks = torch.linalg.matrix_rank(state['y'])
 
             else:
-                nnzero += (p >= threshold).sum()
+                nnzero += (torch.abs(p) >= threshold).sum()
+                if p.ndim == 4:
+                    ranks = torch.linalg.matrix_rank(p.clone().permute((2, 3, 1, 0)))
                 if p.ndim > 1:
                     ranks = torch.linalg.matrix_rank(p)
 
             n_params += p.numel()
+            
+            q = p.clone()
+            if p.ndim == 4:
+                q = p.clone().permute((2, 3, 1, 0))
             if p.ndim > 1:
                 total_rank += ranks.sum()
-                max_rank += min(p.shape[-2:]) * ranks.numel()
+                max_rank += min(q.shape[-2:]) * ranks.numel()
 
     return nnzero / n_params, total_rank / max_rank
 
@@ -324,7 +331,7 @@ def main():
                         help='how many batches to wait before logging training status')
     parser.add_argument('--retraction', type=bool, default=True,
                         help='enable retraction of the learning rate')
-    parser.add_argument('--penalty', type=bool, default=False,
+    parser.add_argument('--penalty', default=True,
                         help='if passed, uses a penalized formulation rather than constrained.')
     parser.add_argument('--no_splitting', action='store_true', default=False)
     parser.add_argument('--log_model_interval', type=int, default=10,
@@ -340,6 +347,13 @@ def main():
 
     if args.lr != 'sublinear':
         args.lr = float(args.lr)
+
+    if args.penalty in ('false', 'False', 'f', 'F', False, ''):
+        args.penalty = False
+    elif args.penalty in ('true', 'True', 't', 'T', True):
+        args.penalty = True
+    else:
+        raise ValueError("args.penalty was not understood. Please use 'True' or 'False'.")
 
     wandb.init(project='low-rank_sparse_cifar10', config=args)
 
@@ -370,6 +384,7 @@ def main():
             model.parameters(), lr=args.lr, momentum=args.momentum)
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer, step_size=args.lr_decay_step, gamma=args.lr_decay)
+        # TODO: figure out subgradient descent on penalized L1 / tracenorm here!
         bias_opt = None
         bias_scheduler = None
         retractionScheduler = None
@@ -395,15 +410,7 @@ def main():
 
         # Unconstrain downsampling layers
         for k, (name, param) in enumerate(model.named_parameters()):
-            if 'downsample' in name:
-                # import pdb; pdb.set_trace()
-                try:
-                    *_, m, n = param.shape
-                except ValueError:
-                    pass
-                if m == n == 1:
-                    proxes[k], lmos[k], proxes_lr[k] = None, None, None
-            if 'conv' in name:
+            if 'conv' in name or 'downsample' in name:
                 if lmos[k]:
                     lmos[k] = LMOConv(lmos[k])
 
