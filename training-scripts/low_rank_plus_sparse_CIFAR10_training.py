@@ -331,7 +331,7 @@ def main():
                         help='how many batches to wait before logging training status')
     parser.add_argument('--retraction', type=bool, default=True,
                         help='enable retraction of the learning rate')
-    parser.add_argument('--penalty', type=bool, default=False,
+    parser.add_argument('--penalty', default=False,
                         help='if passed, uses a penalized formulation rather than constrained.')
     parser.add_argument('--no_splitting', action='store_true', default=False)
     parser.add_argument('--log_model_interval', type=int, default=10,
@@ -347,6 +347,13 @@ def main():
 
     if args.lr != 'sublinear':
         args.lr = float(args.lr)
+
+    if args.penalty in ('false', 'False', 'f', 'F', False, ''):
+        args.penalty = False
+    elif args.penalty in ('true', 'True', 't', 'T', True):
+        args.penalty = True
+    else:
+        raise ValueError("args.penalty was not understood. Please use 'True' or 'False'.")
 
     wandb.init(project='low-rank_sparse_cifar10', config=args)
 
@@ -377,6 +384,7 @@ def main():
             model.parameters(), lr=args.lr, momentum=args.momentum)
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer, step_size=args.lr_decay_step, gamma=args.lr_decay)
+        # TODO: figure out subgradient descent on penalized L1 / tracenorm here!
         bias_opt = None
         bias_scheduler = None
         retractionScheduler = None
