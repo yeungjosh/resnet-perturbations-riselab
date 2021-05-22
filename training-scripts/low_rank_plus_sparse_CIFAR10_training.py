@@ -294,8 +294,6 @@ class LMOConv(nn.Module):
         return update_dir.reshape(b, N, C, m, n), max_step_size
 
 
-def process_bool_flag(args, key):
-    
 
 def main():
     # Training settings
