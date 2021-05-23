@@ -286,9 +286,10 @@ class LMOConv(nn.Module):
     
 def init_best_dict():
     keys = ['model', 'optimizer', 'scheduler', 'bias_scheduler', 
-            'retractionScheduler', 'bias_opt', 'accuracy', 'loss', 'epoch']
-    values = ['None, None, None, None, None, None, 0]
-    return {keys[i]:values[i] for i in range(len(keys)}
+            'retractionScheduler', 'bias_opt', 'accuracy', 
+            'loss', 'epoch', 'sparsity', 'loss']
+    values = [None, None, None, None, None, None, 0, 0, 0, 0, 0]
+    return {keys[i]:values[i] for i in range(len(keys))}
 
 def update_best_dict(best_dict, updates_dict):
     for k, v in updates_dict.items():
