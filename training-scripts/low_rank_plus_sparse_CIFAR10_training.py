@@ -287,8 +287,8 @@ class LMOConv(nn.Module):
 def init_best_dict():
     keys = ['model', 'optimizer', 'scheduler', 'bias_scheduler', 
             'retractionScheduler', 'bias_opt', 'accuracy', 
-            'loss', 'epoch', 'sparsity', 'loss']
-    values = [None, None, None, None, None, None, 0, 0, 0, 0, 0]
+            'loss', 'epoch', 'rank', 'sparsity', 'loss']
+    values = [None, None, None, None, None, None, 0, 0, 0, 0, 0, 0]
     return {keys[i]:values[i] for i in range(len(keys))}
 
 def update_best_dict(best_dict, updates_dict):
@@ -301,7 +301,7 @@ def log_current_training_epoch(test_loader, accuracy,
                                loss, sparsity, rank, optimizer, epoch):
     wandb.log({
         "Test Accuracy": accuracy,
-        "Test Loss": test_loss,
+        "Test Loss": loss,
         "Sparsity": sparsity,
         "Rank": rank,
         "LR": optimizer.param_groups[0]['lr'],
@@ -310,7 +310,7 @@ def log_current_training_epoch(test_loader, accuracy,
 def log_new_best(best_dict):
     wandb.log({
         "Best Test Accuracy": best_dict['accuracy'],
-        "Best Test Loss": best_dict['test_loss'],
+        "Best Test Loss": best_dict['loss'],
         "Best Sparsity": best_dict['sparsity'],
         "Best Rank": best_dict['rank'],
         "Best LR": best_dict['optimizer'].param_groups[0]['lr'],
@@ -478,20 +478,22 @@ def main():
     test_loss, test_accuracy = AverageMeter(), AverageMeter()
     
     best_dict = init_best_dict()
-    
+    splitting = not args.no_splitting
+
     for epoch in range(1, args.epochs + 1):
         loss = train(args, model, device, loaders.train, optimizer,
                      bias_opt, epoch, train_loss, not args.no_splitting)
         if loss.isnan():
             break
         accuracy, loss = test(args, model, device, loaders.test,
-             optimizer, epoch, not args.no_splitting)
-        sparsity, rank = get_sparsity_and_rank(opt, splitting)
-        log_current_training_epoch(test_loader, accuracy, 
+             optimizer, epoch, splitting)
+        sparsity, rank = get_sparsity_and_rank(optimizer, splitting)
+        log_current_training_epoch(loaders.test, accuracy, 
                                    loss, sparsity, rank, optimizer, epoch)
                                              
-        if test_accuracy > best_dict['test_accuracy']:
-            best_dict = update_best_dict({'model':model,
+        if accuracy > best_dict['accuracy']:
+            best_dict = update_best_dict(best_dict,
+                                         {'model':model,
                                           'optimizer': optimizer,
                                           'scheduler': scheduler, 
                                           'bias_scheduler': bias_scheduler,
@@ -504,7 +506,7 @@ def main():
                                          })
             log_new_best(best_dict)
 
-        log_opt_state(opt, epoch, splitting)
+        log_opt_state(optimizer, epoch, splitting)
                                   
         scheduler.step()
         if not args.no_splitting:
