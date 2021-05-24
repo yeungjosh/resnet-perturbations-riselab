@@ -294,9 +294,6 @@ class LMOConv(nn.Module):
             u.permute(0, 3, 4, 1, 2), v.permute(0, 3, 4, 1, 2))
         return update_dir.reshape(b, N, C, m, n), max_step_size
 
-<<<<<<< HEAD
-
-=======
     
 def init_best_dict():
     keys = ['model', 'optimizer', 'scheduler', 'bias_scheduler', 
@@ -331,7 +328,6 @@ def log_new_best(best_dict):
         "Best Epoch": best_dict['epoch']})
                                              
     
->>>>>>> 580150afc6058ebf257b905414ed2b3e4eace545
 def main():
     # Training settings
     parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Example')
@@ -357,15 +353,9 @@ def main():
                         help='Optimizer weight decay (default: 5e-4)')
     parser.add_argument('--grad_norm', type=str, default='gradient',
                         help='Gradient normalization options')
-<<<<<<< HEAD
     parser.add_argument('--nuc_constraint_size', type=float, default=1e-4,
                         help='Size of the Nuclear norm Ball constraint')
     parser.add_argument('--l1_constraint_size', type=float, default=1e-4,
-=======
-    parser.add_argument('--nuc_constraint_size', type=float, default=.1,
-                        help='Size of the Nuclear norm Ball constraint')
-    parser.add_argument('--l1_constraint_size', type=float, default=.1,
->>>>>>> 580150afc6058ebf257b905414ed2b3e4eace545
                         help='Size of the ell-1 norm Ball constraint')
     parser.add_argument('--no_cuda', action='store_true', default=False,
                         help='disables CUDA training')
