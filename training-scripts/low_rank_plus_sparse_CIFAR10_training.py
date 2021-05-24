@@ -36,14 +36,14 @@ def log_opt_state(opt, epoch, splitting=True):
             state = opt.state[p]
             if p.ndim == 4:
                 _, s, _ = torch.linalg.svd(p.permute(2, 3, 0, 1))
-            else:
+            elif p.ndim == 2:
                 _, s, _ = torch.linalg.svd(p)
             singular_values.append(s.flatten().detach().cpu())
             values.append(p.flatten().detach().cpu())
             if splitting:
                 if p.ndim == 4:
                     _, s, _ = torch.linalg.svd(state['y'].permute(2, 3, 0, 1))
-                else:
+                elif p.ndim == 2:
                     _, s, _ = torch.linalg.svd(state['y'])
                 singular_values_lr.append(s.flatten().detach().cpu())
                 values_sparse.append(state['x'].flatten().detach().cpu())
