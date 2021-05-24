@@ -13,11 +13,12 @@ import argparse
 import os
 from tqdm import tqdm
 from datetime import datetime
+import copy
 
 import torch
 from torch import nn
 from torch.nn import functional as F
-from resnet import ResNet
+from resnet import ResNet18
 from torchvision.models import mobilenet_v2
 import torchvision.models as models
 
@@ -27,10 +28,8 @@ import wandb
 
 
 def log_opt_state(opt, epoch, splitting=True):
-    singular_values = []
-    values = []
-    singular_values_lr = []
-    values_sparse = []
+    singular_values, values = [], []
+    singular_values_lr, values_sparse  = [], []
 
     for group in opt.param_groups:
         for p in group['params']:
@@ -160,20 +159,11 @@ def test(args, model, device, test_loader, opt, epoch, splitting=True):
                 data[0], caption="Pred: {} Truth: {}".format(pred[0].item(), target[0])))
 
     test_loss /= len(test_loader.dataset)
+    test_accuracy = 100 * correct / len(test_loader.dataset)
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-        test_loss, correct, len(test_loader.dataset),
-        100. * correct / len(test_loader.dataset)))
-    sparsity, rank = get_sparsity_and_rank(opt, splitting)
-    wandb.log({
-        # "Examples": example_images,
-        "Test Accuracy": 100. * correct / len(test_loader.dataset),
-        "Test Loss": test_loss,
-        "Sparsity": sparsity,
-        "Rank": rank,
-        "LR": opt.param_groups[0]['lr'],
-        "Epoch": epoch})
-
-    log_opt_state(opt, epoch, splitting)
+         test_loss, correct, len(test_loader.dataset), test_accuracy))
+    
+    return test_accuracy, test_loss
 
 
 class RetractionLR(torch.optim.lr_scheduler._LRScheduler):
@@ -304,7 +294,44 @@ class LMOConv(nn.Module):
             u.permute(0, 3, 4, 1, 2), v.permute(0, 3, 4, 1, 2))
         return update_dir.reshape(b, N, C, m, n), max_step_size
 
+<<<<<<< HEAD
 
+=======
+    
+def init_best_dict():
+    keys = ['model', 'optimizer', 'scheduler', 'bias_scheduler', 
+            'retractionScheduler', 'bias_opt', 'accuracy', 
+            'loss', 'epoch', 'rank', 'sparsity', 'loss']
+    values = [None, None, None, None, None, None, 0, 0, 0, 0, 0, 0]
+    return {keys[i]:values[i] for i in range(len(keys))}
+
+def update_best_dict(best_dict, updates_dict):
+    for k, v in updates_dict.items():
+        if k in best_dict:
+            best_dict[k] = copy.deepcopy(v)
+    return best_dict
+                                             
+def log_current_training_epoch(test_loader, accuracy, 
+                               loss, sparsity, rank, optimizer, epoch):
+    wandb.log({
+        "Test Accuracy": accuracy,
+        "Test Loss": loss,
+        "Sparsity": sparsity,
+        "Rank": rank,
+        "LR": optimizer.param_groups[0]['lr'],
+        "Epoch": epoch})
+                                             
+def log_new_best(best_dict):
+    wandb.log({
+        "Best Test Accuracy": best_dict['accuracy'],
+        "Best Test Loss": best_dict['loss'],
+        "Best Sparsity": best_dict['sparsity'],
+        "Best Rank": best_dict['rank'],
+        "Best LR": best_dict['optimizer'].param_groups[0]['lr'],
+        "Best Epoch": best_dict['epoch']})
+                                             
+    
+>>>>>>> 580150afc6058ebf257b905414ed2b3e4eace545
 def main():
     # Training settings
     parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Example')
@@ -314,25 +341,31 @@ def main():
                         help='input batch size for training (default: 64)')
     parser.add_argument('--test_batch_size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
-    parser.add_argument('--epochs', type=int, default=5, metavar='N',
-                        help='number of epochs to train (default: 5)')
-    parser.add_argument('--lr',  default=1e-1, metavar='LR',
-                        help='learning rate (default: "sublinear")')
+    parser.add_argument('--epochs', type=int, default=150, metavar='N',
+                        help='number of epochs to train (default: 150)')
+    parser.add_argument('--lr',  default=.1, metavar='LR',
+                        help='learning rate')
     parser.add_argument('--lipschitz', default=1., type=float, metavar='LIP',
                         help='Lipschitz estimate, used in the prox (default: 1.)')
     parser.add_argument('--lr_bias',  default=1e-2, type=float, metavar='LRB',
-                        help='learning rate (default: "sublinear")')
+                        help='learning rate')
     parser.add_argument('--lr_decay', default=.1, type=float)
-    parser.add_argument('--lr_decay_step', default=30, type=int)
+    parser.add_argument('--lr_decay_step', default=50, type=int)
     parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                         help='Optimizer momentum (default: 0.9)')
     parser.add_argument('--weight_decay', type=float, default=5e-4, metavar='W',
-                        help='Optimizer weight decay (default: 0.)')
+                        help='Optimizer weight decay (default: 5e-4)')
     parser.add_argument('--grad_norm', type=str, default='gradient',
                         help='Gradient normalization options')
+<<<<<<< HEAD
     parser.add_argument('--nuc_constraint_size', type=float, default=1e-4,
                         help='Size of the Nuclear norm Ball constraint')
     parser.add_argument('--l1_constraint_size', type=float, default=1e-4,
+=======
+    parser.add_argument('--nuc_constraint_size', type=float, default=.1,
+                        help='Size of the Nuclear norm Ball constraint')
+    parser.add_argument('--l1_constraint_size', type=float, default=.1,
+>>>>>>> 580150afc6058ebf257b905414ed2b3e4eace545
                         help='Size of the ell-1 norm Ball constraint')
     parser.add_argument('--no_cuda', action='store_true', default=False,
                         help='disables CUDA training')
@@ -388,7 +421,7 @@ def main():
     if args.arch == 'resnet':
         # model = ResNet(depth=args.resnet_depth, num_classes=10).to(device)
         # TODO: MAKE THIS BETTER
-        model = models.resnet18(num_classes=10).to(device)
+        model = ResNet18(num_classes=10).to(device)
     else:
         model = mobilenet_v2(pretrained=False, num_classes=10).to(device)
 
@@ -466,6 +499,9 @@ def main():
     # initialize some necessary metrics objects
     train_loss, train_accuracy = AverageMeter(), AverageMeter()
     test_loss, test_accuracy = AverageMeter(), AverageMeter()
+    
+    best_dict = init_best_dict()
+    splitting = not args.no_splitting
 
     for epoch in range(1, args.epochs + 1):
         loss = train(args, model, device, loaders.train, optimizer,
@@ -474,8 +510,29 @@ def main():
                      not args.no_splitting)
         if loss.isnan():
             break
-        test(args, model, device, loaders.test,
-             optimizer, epoch, not args.no_splitting)
+        accuracy, loss = test(args, model, device, loaders.test,
+             optimizer, epoch, splitting)
+        sparsity, rank = get_sparsity_and_rank(optimizer, splitting)
+        log_current_training_epoch(loaders.test, accuracy, 
+                                   loss, sparsity, rank, optimizer, epoch)
+                                             
+        if accuracy > best_dict['accuracy']:
+            best_dict = update_best_dict(best_dict,
+                                         {'model':model,
+                                          'optimizer': optimizer,
+                                          'scheduler': scheduler, 
+                                          'bias_scheduler': bias_scheduler,
+                                          'retractionScheduler': retractionScheduler,
+                                          'bias_opt': bias_opt,
+                                          'accuracy': accuracy,
+                                          'loss': loss,
+                                          'sparsity': sparsity,
+                                          'rank': rank
+                                         })
+            log_new_best(best_dict)
+
+        log_opt_state(optimizer, epoch, splitting)
+                                  
         scheduler.step()
         if not args.no_splitting:
             bias_scheduler.step()
@@ -486,16 +543,7 @@ def main():
             retractionScheduler.step()
 
         if epoch % args.log_model_interval == 1:
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'opt_scheduler_state_dict': scheduler.state_dict(),
-                'bias_opt_scheduler_state_dict': bias_scheduler.state_dict() if bias_scheduler else None,
-                'retraction_scheduler_state_dict': retractionScheduler.state_dict() if retractionScheduler else None,
-                'opt_bias_state_dict': bias_opt.state_dict() if bias_opt else None,
-                'args': args
-            }, LOGPATH)
+            torch.save(best_dict, LOGPATH)
 
 
 if __name__ == '__main__':
