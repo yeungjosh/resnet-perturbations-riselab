@@ -99,7 +99,9 @@ def get_sparsity_and_rank(opt, splitting=True):
     return nnzero / n_params, total_rank / max_rank
 
 
-def train(args, model, device, train_loader, opt, opt_bias, epoch, train_loss, splitting=True):
+def train(args, model, device, train_loader, opt, opt_bias, epoch,
+          train_loss, sparse_penalties=None, low_rank_penalties=None,
+          splitting=True):
     model.train()
     for batch_idx, (data, target) in tqdm(enumerate(train_loader),
                                           desc=f'Training epoch {epoch}'):
@@ -109,6 +111,15 @@ def train(args, model, device, train_loader, opt, opt_bias, epoch, train_loss, s
             opt_bias.zero_grad()
         output = model(data)
         loss = F.cross_entropy(output, target)
+        if args.penalty and not splitting:
+            for param, sp_penalty, lr_penalty in zip(model.parameters(), sparse_penalties, low_rank_penalties):
+                if sp_penalty and sp_penalty.alpha > 0.:
+                    loss += sp_penalty(param).sum()
+                if lr_penalty and lr_penalty.alpha > 0.:
+                    q = param.clone()
+                    if param.ndim == 4:
+                        q = param.permute(2, 3, 0, 1)
+                    loss += lr_penalty(q).sum()
         # TODO: figure out subgradient descent with L1 penalty
         # if args.penalty and not splitting:
         #     loss += ell1_penalty(parameters, scale)
@@ -294,9 +305,6 @@ class LMOConv(nn.Module):
         return update_dir.reshape(b, N, C, m, n), max_step_size
 
 
-def process_bool_flag(args, key):
-    
-
 def main():
     # Training settings
     parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Example')
@@ -322,9 +330,9 @@ def main():
                         help='Optimizer weight decay (default: 0.)')
     parser.add_argument('--grad_norm', type=str, default='gradient',
                         help='Gradient normalization options')
-    parser.add_argument('--nuc_constraint_size', type=float, default=70,
+    parser.add_argument('--nuc_constraint_size', type=float, default=1e-4,
                         help='Size of the Nuclear norm Ball constraint')
-    parser.add_argument('--l1_constraint_size', type=float, default=30,
+    parser.add_argument('--l1_constraint_size', type=float, default=1e-4,
                         help='Size of the ell-1 norm Ball constraint')
     parser.add_argument('--no_cuda', action='store_true', default=False,
                         help='disables CUDA training')
@@ -334,7 +342,7 @@ def main():
                         help='how many batches to wait before logging training status')
     parser.add_argument('--retraction', type=bool, default=True,
                         help='enable retraction of the learning rate')
-    parser.add_argument('--penalty', default=False,
+    parser.add_argument('--penalty', default=True,
                         help='if passed, uses a penalized formulation rather than constrained.')
     parser.add_argument('--no_splitting', action='store_true', default=False)
     parser.add_argument('--log_model_interval', type=int, default=10,
@@ -389,6 +397,18 @@ def main():
     LOGPATH = "models/run.chkpt"
     LOGPATH = get_model_logpath(LOGPATH, args)
 
+    print("Make constraints/penalties...")
+    constraints_sparsity = chop.constraints.make_model_constraints(model,
+                                                                ord=1,
+                                                                value=args.l1_constraint_size,
+                                                                constrain_bias=False,
+                                                                penalty=args.penalty)
+    constraints_low_rank = chop.constraints.make_model_constraints(model,
+                                                                ord='nuc',
+                                                                value=args.nuc_constraint_size,
+                                                                constrain_bias=False,
+                                                                penalty=args.penalty)
+
     if args.no_splitting:
         optimizer = torch.optim.SGD(
             model.parameters(), lr=args.lr, momentum=args.momentum)
@@ -398,18 +418,8 @@ def main():
         bias_opt = None
         bias_scheduler = None
         retractionScheduler = None
+
     else:
-        print("Make constraints/penalties...")
-        constraints_sparsity = chop.constraints.make_model_constraints(model,
-                                                                       ord=1,
-                                                                       value=args.l1_constraint_size,
-                                                                       constrain_bias=False,
-                                                                       penalty=args.penalty)
-        constraints_low_rank = chop.constraints.make_model_constraints(model,
-                                                                       ord='nuc',
-                                                                       value=args.nuc_constraint_size,
-                                                                       constrain_bias=False,
-                                                                       penalty=args.penalty)
         proxes = [constraint.prox if constraint else None
                   for constraint in constraints_sparsity]
         lmos = [constraint.lmo if constraint else None
@@ -459,7 +469,9 @@ def main():
 
     for epoch in range(1, args.epochs + 1):
         loss = train(args, model, device, loaders.train, optimizer,
-                     bias_opt, epoch, train_loss, not args.no_splitting)
+                     bias_opt, epoch, train_loss, 
+                     constraints_sparsity, constraints_low_rank, 
+                     not args.no_splitting)
         if loss.isnan():
             break
         test(args, model, device, loaders.test,
