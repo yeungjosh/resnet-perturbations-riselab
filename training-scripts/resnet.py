@@ -1,215 +1,130 @@
+'''ResNet in PyTorch.
+For Pre-activation ResNet, see 'preact_resnet.py'.
+Reference:
+[1] Kaiming He, Xiangyu Zhang, Shaoqing Ren, Jian Sun
+    Deep Residual Learning for Image Recognition. arXiv:1512.03385
+'''
+import torch
 import torch.nn as nn
-import math
-
-
-def conv3x3(in_planes, out_planes, stride=1):
-    "3x3 convolution with padding"
-    return nn.Conv2d(in_planes,
-                     out_planes,
-                     kernel_size=3,
-                     stride=stride,
-                     padding=1,
-                     bias=False)
-
-
-def NoSequential(*args):
-    """Filters Nones as no-ops when making ann.Sequential to allow for architecture toggling."""
-    net = [arg for arg in args if arg is not None]
-    return nn.Sequential(*net)
-
+import torch.nn.functional as F
+from robustness.tools.custom_modules import SequentialWithArgs, FakeReLU
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self,
-                 inplanes,
-                 planes,
-                 stride=1,
-                 downsample=None,
-                 with_bn=True):
+    def __init__(self, in_planes, planes, stride=1):
         super(BasicBlock, self).__init__()
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride,
+                               padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
+                               padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
 
-        self.with_bn = with_bn
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_planes != self.expansion*planes:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_planes, self.expansion*planes, kernel_size=1,
+                          stride=stride, bias=False),
+                nn.BatchNorm2d(self.expansion*planes))
 
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        if self.with_bn:
-            self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=False)
-        self.conv2 = conv3x3(planes, planes)
-        if self.with_bn:
-            self.bn2 = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-
-        out = self.conv1(x)
-        out = self.relu(out)
-        if self.with_bn:
-            out = self.bn1(out)
-
-        out = self.conv2(out)
-        out = self.relu(out)
-        if self.with_bn:
-            out = self.bn2(out)
-
-        if self.downsample is not None:
-            residual = self.downsample(x)
-
-        out += residual
-
-        return out
+    def forward(self, x, fake_relu=False):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += self.shortcut(x)
+        if fake_relu:
+            return FakeReLU.apply(out)
+        return F.relu(out)
 
 
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self,
-                 inplanes,
-                 planes,
-                 stride=1,
-                 downsample=None,
-                 with_bn=True):
+    def __init__(self, in_planes, planes, stride=1):
         super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
+                               padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv3 = nn.Conv2d(planes, self.expansion*planes, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(self.expansion*planes)
 
-        self.with_bn = with_bn
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_planes != self.expansion*planes:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_planes, self.expansion*planes, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(self.expansion*planes)
+            )
 
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        if self.with_bn:
-            self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes,
-                               planes,
-                               kernel_size=3,
-                               stride=stride,
-                               padding=1,
-                               bias=False)
-        if self.with_bn:
-            self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        if self.with_bn:
-            self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=False)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-
-        out = self.conv1(x)
-        if self.with_bn:
-            out = self.bn1(out)
-        out = self.relu(out)
-
-        out = self.conv2(out)
-        if self.with_bn:
-            out = self.bn2(out)
-        out = self.relu(out)
-
-        out = self.conv3(out)
-        if self.with_bn:
-            out = self.bn3(out)
-        out = self.relu(out)
-
-        if self.downsample is not None:
-            residual = self.downsample(x)
-
-        out += residual
-
-        return out
-
-
-ALPHA_ = 1
+    def forward(self, x, fake_relu=False):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = F.relu(self.bn2(self.conv2(out)))
+        out = self.bn3(self.conv3(out))
+        out += self.shortcut(x)
+        if fake_relu:
+            return FakeReLU.apply(out)
+        return F.relu(out)
 
 
 class ResNet(nn.Module):
-
-    def __init__(self, depth, num_classes=10, use_batch_norms=True):
+    # feat_scale lets us deal with CelebA, other non-32x32 datasets
+    def __init__(self, block, num_blocks, num_classes=10, feat_scale=1, wm=1):
         super(ResNet, self).__init__()
-        # Model type specifies number of layers for CIFAR-10 model
-        assert (depth - 2) % 6 == 0, 'depth should be 6n+2'
-        n = (depth - 2) // 6
 
-        block = Bottleneck if depth >= 500 else BasicBlock
+        widths = [64, 128, 256, 512]
+        widths = [int(w * wm) for w in widths]
 
-        self.with_bn = use_batch_norms
-        self.inplanes = 16 * ALPHA_
-        self.conv1 = nn.Conv2d(3,
-                               16 * ALPHA_,
-                               kernel_size=3,
-                               padding=1,
-                               bias=False)
+        self.in_planes = widths[0]
+        self.conv1 = nn.Conv2d(3, self.in_planes, kernel_size=3, stride=1,
+                               padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(self.in_planes)
+        self.layer1 = self._make_layer(block, widths[0], num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, widths[1], num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, widths[2], num_blocks[2], stride=2)
+        self.layer4 = self._make_layer(block, widths[3], num_blocks[3], stride=2)
+        self.linear = nn.Linear(feat_scale*widths[3]*block.expansion, num_classes)
 
-        if self.with_bn:
-            self.bn1 = nn.BatchNorm2d(16 * ALPHA_)
-
-        self.relu = nn.ReLU(inplace=True)
-        self.layer1 = self._make_layer(block,
-                                       16 * ALPHA_,
-                                       n,
-                                       with_bn=self.with_bn)
-        self.layer2 = self._make_layer(block,
-                                       32 * ALPHA_,
-                                       n,
-                                       stride=2,
-                                       with_bn=self.with_bn)
-        self.layer3 = self._make_layer(block,
-                                       64 * ALPHA_,
-                                       n,
-                                       stride=2,
-                                       with_bn=self.with_bn)
-        self.avgpool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Linear(64 * ALPHA_ * block.expansion, num_classes)
-
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-        self.mode = 'normal'
-
-    def _make_layer(self, block, planes, blocks, stride=1, with_bn=True):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = NoSequential(
-                nn.Conv2d(self.inplanes,
-                          planes * block.expansion,
-                          kernel_size=1,
-                          stride=stride,
-                          bias=False),
-                nn.BatchNorm2d(planes * block.expansion) if with_bn else None,
-            )
-
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1]*(num_blocks-1)
         layers = []
-        layers.append(block(self.inplanes, planes,
-                      stride, downsample, with_bn))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, with_bn=with_bn))
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+        return SequentialWithArgs(*layers)
 
-        return nn.Sequential(*layers)
+    def forward(self, x, with_latent=False, fake_relu=False, no_relu=False):
+        assert (not no_relu),  \
+            "no_relu not yet supported for this architecture"
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = self.layer4(out, fake_relu=fake_relu)
+        out = F.avg_pool2d(out, 4)
+        pre_out = out.view(out.size(0), -1)
+        final = self.linear(pre_out)
+        if with_latent:
+            return final, pre_out
+        return final
 
-    def forward(self, x):
-        bs = x.size(0)
+def ResNet18(**kwargs):
+    return ResNet(BasicBlock, [2,2,2,2], **kwargs)
 
-        x = self.conv1(x)
-        if self.with_bn:
-            x = self.bn1(x)
-        x = self.relu(x)  # 32x32
+def ResNet18Wide(**kwargs):
+    return ResNet(BasicBlock, [2,2,2,2], wm=5, **kwargs)
 
-        for i in range(len(self.layer1)):
-            x = self.layer1[i](x)
+def ResNet18Thin(**kwargs):
+    return ResNet(BasicBlock, [2,2,2,2], wd=.75, **kwargs)
 
-        for i in range(len(self.layer2)):
-            x = self.layer2[i](x)
+def ResNet34(**kwargs):
+    return ResNet(BasicBlock, [3,4,6,3], **kwargs)
 
-        for i in range(len(self.layer3)):
-            x = self.layer3[i](x)
+def ResNet50(**kwargs):
+    return ResNet(Bottleneck, [3,4,6,3], **kwargs)
 
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
+def ResNet101(**kwargs):
+    return ResNet(Bottleneck, [3,4,23,3], **kwargs)
 
-        return x
+def ResNet152(**kwargs):
+    return ResNet(Bottleneck, [3,8,36,3], **kwargs)

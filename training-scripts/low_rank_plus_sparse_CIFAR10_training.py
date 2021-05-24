@@ -363,9 +363,9 @@ def main():
                         help='random seed (default: 1)')
     parser.add_argument('--log_interval', type=int, default=50, metavar='N',
                         help='how many batches to wait before logging training status')
-    parser.add_argument('--retraction', type=bool, default=True,
+    parser.add_argument('--retraction', type=str, default=True,
                         help='enable retraction of the learning rate')
-    parser.add_argument('--penalty', default=True,
+    parser.add_argument('--penalty', type=str, default=True,
                         help='if passed, uses a penalized formulation rather than constrained.')
     parser.add_argument('--no_splitting', action='store_true', default=False)
     parser.add_argument('--log_model_interval', type=int, default=10,
@@ -396,6 +396,8 @@ def main():
     else:
         raise ValueError("args.retraction was not understood. Please use 'True' or 'False'.")
 
+    print(f'args.retraction: {args.retraction}')
+
     wandb.init(project='low-rank_sparse_cifar10', config=args)
 
     torch.manual_seed(args.seed)
@@ -415,6 +417,7 @@ def main():
     else:
         model = mobilenet_v2(pretrained=False, num_classes=10).to(device)
 
+    print(model)
     if not os.path.exists('models/'):
         os.mkdir('models/')
     LOGPATH = "models/run.chkpt"
@@ -453,7 +456,7 @@ def main():
 
         # Unconstrain downsampling layers
         for k, (name, param) in enumerate(model.named_parameters()):
-            if 'conv' in name or 'downsample' in name:
+            if 'conv' in name or 'shortcut' in name:
                 if lmos[k]:
                     lmos[k] = LMOConv(lmos[k])
 
