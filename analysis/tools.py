@@ -15,6 +15,7 @@ import seaborn as sns
 
 from tqdm import tqdm
 import torch.nn.functional as F
+from resnet import ResNet18
 
 from torch.nn.utils import prune
 import torchvision.models as models
@@ -42,8 +43,28 @@ MODEL_PATHS = {
     'LR+SP'    : join(base_path, 'run210513_020800 -- nuc 100 l1 40.chkpt'),
     'L1_LR+SP'    : join('/scratch/data/models/runresnet20_lr:0.293157841700743_sp:2.2747436939077834e-07_210518_012327.chkpt'),
     'wednesday_sp_works': join(base_path, 'deft-sweep-23.chkpt'),
-    'new': join(base_path, 'flowing-sweep-68.chkpt'),
+    'bad_lr': join(base_path, 'flowing-sweep-68.chkpt'),
+    'torchvision_resnet': join(base_path, 'flowing-sweep-68.chkpt'),
+    'new': join(base_path, 'lilac-sweep-2.chkpt'),
 }
+
+DEFAULT_ARGS = EasyDict({
+    'epochs': 120,
+    'grad_norm': 'gradient',
+    'l1_constraint_size': 23.070341001763246,
+    'lipschitz': 72.92194132407582,
+    'lr': 0.09510827642645917,
+    'lr_bias': 0.017271296934580724,
+    'lr_decay': 0.28233417011324874,
+    'lr_decay_step': 34,
+    'momentum': 0.9758785351079742,
+    'nuc_constraint_size': 11.222103455264056,
+    'seed': 1483,
+    'weight_decay': 0.002110655336688122,
+    'resnet_depth': 20,
+    'no_splitting': True,
+    'retraction': True
+})
 
 
 ### ----------- ###
@@ -407,13 +428,15 @@ def load(checkpoint_path, args=None, keep_sgd_optimizer=True):
         checkpoint = torch.load(checkpoint_path)
     except RuntimeError:
         checkpoint = torch.load(checkpoint_path, map_location=torch.device('cpu'))
-    if args is None:
+    if args is None and 'args' in checkpoint:
         args = checkpoint['args']
+    else: 
+        args = DEFAULT_ARGS
     
     if 'sweep' in checkpoint_path:
         model = models.resnet18(num_classes=10).to(device)
     else:
-        model = ResNet(depth=args.resnet_depth, num_classes=10).to(device)
+        model = ResNet18(num_classes=10).to(device)
 
     if args.no_splitting and keep_sgd_optimizer:
         optimizer = torch.optim.SGD(
@@ -445,14 +468,7 @@ def load(checkpoint_path, args=None, keep_sgd_optimizer=True):
 
         # Unconstrain downsampling layers
         for k, (name, param) in enumerate(model.named_parameters()):
-            if 'downsample' in name:
-                try:
-                    *_, m, n = param.shape
-                except ValueError:
-                    continue
-                if m == n == 1:
-                    proxes[k], lmos[k], proxes_lr[k] = None, None, None
-            if 'conv' in name:
+            if 'conv' in name or 'shortcut' in name:
                 if lmos[k]:
                     lmos[k] = LMOConv(lmos[k])
 
@@ -500,23 +516,7 @@ def load(checkpoint_path, args=None, keep_sgd_optimizer=True):
 
 # This example is for the best performing model we have, on Ben's ResNet
 
-args = EasyDict({
-    'epochs': 120,
-    'grad_norm': 'gradient',
-    'l1_constraint_size': 23.070341001763246,
-    'lipschitz': 72.92194132407582,
-    'lr': 0.09510827642645917,
-    'lr_bias': 0.017271296934580724,
-    'lr_decay': 0.28233417011324874,
-    'lr_decay_step': 34,
-    'momentum': 0.9758785351079742,
-    'nuc_constraint_size': 11.222103455264056,
-    'seed': 1483,
-    'weight_decay': 0.002110655336688122,
-    'resnet_depth': 20,
-    'no_splitting': True,
-    'retraction': True
-})
+
 
 
 ### ---------------------------- ###
@@ -641,6 +641,7 @@ def sparsify_weights(model, optimizer, model_copy, optimizer_copy, pruning_pct=0
             lr = optimizer.state[p]['y'].clone()
             sp = optimizer.state[p]['x'].clone()
             sp_masked = sp.data*mask
+            optimizer.state[p]['x'].copy_(sp_masked)
             p.copy_(sp_masked+lr)
         else:
             p.copy_(p.data*mask)

@@ -76,8 +76,8 @@ def get_sparsity_and_rank(opt, splitting=True):
                 nnzero += (~torch.isclose(state['x'], torch.zeros_like(p))).sum()
                 if p.ndim == 4:
                     ranks = torch.linalg.matrix_rank(state['y'].clone().permute((2, 3, 1, 0)))
-
-                ranks = torch.linalg.matrix_rank(state['y'])
+                elif p.ndim > 1:
+                    ranks = torch.linalg.matrix_rank(state['y'])
 
             else:
                 nnzero += (torch.abs(p) >= threshold).sum()
@@ -91,8 +91,12 @@ def get_sparsity_and_rank(opt, splitting=True):
             q = p.clone()
             if p.ndim == 4:
                 q = p.clone().permute((2, 3, 1, 0))
-            total_rank += ranks.sum()
-            max_rank += min(q.shape[-2:]) * ranks.numel()
+            elif p.ndim > 1:
+                total_rank += ranks.sum()
+                max_rank += min(q.shape[-2:]) * ranks.numel()
+            elif p.ndim == 1:
+                total_rank = 0
+                max_rank = 1
 
     return nnzero / n_params, total_rank / max_rank
 
@@ -294,11 +298,12 @@ class LMOConv(nn.Module):
         return update_dir.reshape(b, N, C, m, n), max_step_size
 
     
-def init_best_dict():
-    keys = ['model', 'optimizer', 'scheduler', 'bias_scheduler', 
-            'retractionScheduler', 'bias_opt', 'accuracy', 
-            'loss', 'epoch', 'rank', 'sparsity', 'loss']
-    values = [None, None, None, None, None, None, 0, 0, 0, 0, 0, 0]
+def init_best_dict(args):
+    keys = ['args', 'model_state_dict', 'optimizer_state_dict', 
+            'opt_scheduler_state_dict', 'bias_opt_scheduler_state_dict', 
+            'retraction_scheduler_state_dict', 'opt_bias_state_dict', 
+            'accuracy', 'loss', 'epoch', 'rank', 'sparsity', 'loss']
+    values = [args, None, None, None, None, None, None, 0, 0, 0, 0, 0, 0]
     return {keys[i]:values[i] for i in range(len(keys))}
 
 def update_best_dict(best_dict, updates_dict):
@@ -317,13 +322,13 @@ def log_current_training_epoch(test_loader, accuracy,
         "LR": optimizer.param_groups[0]['lr'],
         "Epoch": epoch})
                                              
-def log_new_best(best_dict):
+def log_new_best(best_dict, optimizer):
     wandb.log({
         "Best Test Accuracy": best_dict['accuracy'],
         "Best Test Loss": best_dict['loss'],
         "Best Sparsity": best_dict['sparsity'],
         "Best Rank": best_dict['rank'],
-        "Best LR": best_dict['optimizer'].param_groups[0]['lr'],
+        "Best LR": optimizer.param_groups[0]['lr'],
         "Best Epoch": best_dict['epoch']})
                                              
     
@@ -492,14 +497,13 @@ def main():
     train_loss, train_accuracy = AverageMeter(), AverageMeter()
     test_loss, test_accuracy = AverageMeter(), AverageMeter()
     
-    best_dict = init_best_dict()
+    best_dict = init_best_dict(args)
     splitting = not args.no_splitting
 
     for epoch in range(1, args.epochs + 1):
         loss = train(args, model, device, loaders.train, optimizer,
-                     bias_opt, epoch, train_loss, 
-                     constraints_sparsity, constraints_low_rank, 
-                     not args.no_splitting)
+                     bias_opt, epoch, train_loss, constraints_sparsity, 
+                     constraints_low_rank, splitting)
         if loss.isnan():
             break
         accuracy, loss = test(args, model, device, loaders.test,
@@ -507,21 +511,25 @@ def main():
         sparsity, rank = get_sparsity_and_rank(optimizer, splitting)
         log_current_training_epoch(loaders.test, accuracy, 
                                    loss, sparsity, rank, optimizer, epoch)
-                                             
+
+        retractionSchedulerStateDict = None 
+        if hasattr(retractionScheduler, 'state_dict'):
+            retractionSchedulerStateDict = retractionScheduler.state_dict()
+
         if accuracy > best_dict['accuracy']:
             best_dict = update_best_dict(best_dict,
-                                         {'model':model,
-                                          'optimizer': optimizer,
-                                          'scheduler': scheduler, 
-                                          'bias_scheduler': bias_scheduler,
-                                          'retractionScheduler': retractionScheduler,
-                                          'bias_opt': bias_opt,
+                                         {'model_state_dict':model.state_dict(),
+                                          'optimizer_state_dict': optimizer.state_dict(),
+                                          'opt_scheduler_state_dict': scheduler.state_dict(), 
+                                          'bias_opt_scheduler_state_dict': bias_scheduler.state_dict(),
+                                          'retraction_scheduler_state_dict': retractionSchedulerStateDict,
+                                          'opt_bias_state_dict': bias_opt.state_dict,
                                           'accuracy': accuracy,
                                           'loss': loss,
                                           'sparsity': sparsity,
                                           'rank': rank
                                          })
-            log_new_best(best_dict)
+            log_new_best(best_dict, optimizer)
 
         log_opt_state(optimizer, epoch, splitting)
                                   
