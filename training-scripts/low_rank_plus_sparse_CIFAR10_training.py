@@ -515,15 +515,21 @@ def main():
         retractionSchedulerStateDict = None 
         if hasattr(retractionScheduler, 'state_dict'):
             retractionSchedulerStateDict = retractionScheduler.state_dict()
-
+        biasOptSchedulerStateDict = None 
+        if hasattr(bias_scheduler, 'state_dict'):
+            biasOptSchedulerStateDict = bias_scheduler.state_dict()
+        biasOptStateDict = None 
+        if hasattr(bias_opt, 'state_dict'):
+            biasOptStateDict = bias_opt.state_dict()
+        
         if accuracy > best_dict['accuracy']:
             best_dict = update_best_dict(best_dict,
                                          {'model_state_dict':model.state_dict(),
                                           'optimizer_state_dict': optimizer.state_dict(),
                                           'opt_scheduler_state_dict': scheduler.state_dict(), 
-                                          'bias_opt_scheduler_state_dict': bias_scheduler.state_dict(),
+                                          'bias_opt_scheduler_state_dict': biasOptSchedulerStateDict,
                                           'retraction_scheduler_state_dict': retractionSchedulerStateDict,
-                                          'opt_bias_state_dict': bias_opt.state_dict,
+                                          'opt_bias_state_dict': biasOptStateDict,
                                           'accuracy': accuracy,
                                           'loss': loss,
                                           'sparsity': sparsity,
