@@ -12,7 +12,6 @@ import torch.nn as nn
 import argparse
 import os
 from tqdm import tqdm
-from datetime import datetime
 import copy
 
 import torch
@@ -25,6 +24,8 @@ import torchvision.models as models
 import chop
 
 import wandb
+
+from tools import RetractionLR, RunningAverage, AverageMeter, LMOConv, get_model_logpath 
 
 
 def log_opt_state(opt, epoch, splitting=True):
@@ -122,9 +123,6 @@ def train(args, model, device, train_loader, opt, opt_bias, epoch,
                     if param.ndim == 4:
                         q = param.permute(2, 3, 0, 1)
                     loss += lr_penalty(q).sum()
-        # TODO: figure out subgradient descent with L1 penalty
-        # if args.penalty and not splitting:
-        #     loss += ell1_penalty(parameters, scale)
         loss.backward()
         if loss.isnan():
             warnings.warn("Train loss is nan.")
@@ -169,135 +167,6 @@ def test(args, model, device, test_loader, opt, epoch, splitting=True):
     return test_accuracy, test_loss
 
 
-class RetractionLR(torch.optim.lr_scheduler._LRScheduler):
-    """
-    Retracts the learning rate as follows. Two running averages are kept, one of length n_close, one of n_far. Adjust
-    the learning_rate depending on the relation of far_average and close_average. Decrease by 1-retraction_factor.
-    Increase by 1/(1 - retraction_factor*growth_factor)
-    """
-
-    def __init__(self, optimizer, retraction_factor=0.3, n_close=5, n_far=10, lowerBound=1e-5, upperBound=1, growth_factor=0.2, last_epoch=-1):
-        self.retraction_factor = retraction_factor
-        self.n_close = n_close
-        self.n_far = n_far
-        self.lowerBound = lowerBound
-        self.upperBound = upperBound
-        self.growth_factor = growth_factor
-
-        assert (0 <= self.retraction_factor <
-                1), "Retraction factor must be in [0, 1[."
-        assert (0 <= self.lowerBound < self.upperBound <=
-                1), "Bounds must be in [0, 1]"
-        assert (0 < self.growth_factor <= 1), "Growth factor must be in ]0, 1]"
-
-        self.closeAverage = RunningAverage(self.n_close)
-        self.farAverage = RunningAverage(self.n_far)
-
-        super(RetractionLR, self).__init__(optimizer, last_epoch)
-
-    def update_averages(self, loss):
-        self.closeAverage(loss)
-        self.farAverage(loss)
-
-    def get_lr(self):
-        if not self._get_lr_called_within_step:
-            warnings.warn("To get the last learning rate computed by the scheduler, "
-                          "please use `get_last_lr()`.", UserWarning)
-
-        factor = 1
-        if self.farAverage.is_complete() and self.closeAverage.is_complete():
-            if self.closeAverage.result() > self.farAverage.result():
-                # Decrease the learning rate
-                factor = 1 - self.retraction_factor
-            elif self.farAverage.result() > self.closeAverage.result():
-                # Increase the learning rate
-                factor = 1./(1 - self.retraction_factor*self.growth_factor)
-
-        return [max(self.lowerBound, min(factor * group['lr'], self.upperBound)) for group in self.optimizer.param_groups]
-
-
-class RunningAverage(object):
-    """Tracks the running average of n numbers"""
-
-    def __init__(self, n):
-        self.n = n
-        self.reset()
-
-    def reset(self):
-        self.sum = 0
-        self.avg = 0
-        self.entries = []
-
-    def result(self):
-        return self.avg
-
-    def get_count(self):
-        return len(self.entries)
-
-    def is_complete(self):
-        return len(self.entries) == self.n
-
-    def __call__(self, val):
-        if len(self.entries) == self.n:
-            l = self.entries.pop(0)
-            self.sum -= l
-        self.entries.append(val)
-        self.sum += val
-        self.avg = self.sum / len(self.entries)
-
-    def __str__(self):
-        return str(self.avg)
-
-
-class AverageMeter(object):
-    """Computes and stores the average and current value"""
-
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self.sum = 0
-        self.count = 0
-        self.avg = 0
-
-    def result(self):
-        return self.avg
-
-    def __call__(self, val, n=1):
-        """val is an average over n samples. To compute the overall average, add val*n to sum and increase count by n"""
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
-
-    def __str__(self):
-        return str(self.avg)
-
-
-def get_model_logpath(path, args):
-    filename, extension = os.path.splitext(path)
-    time = datetime.strftime(datetime.now(), "%y%m%d_%H%M%S")
-    sp = args.l1_constraint_size
-    lr = args.nuc_constraint_size
-    depth = args.resnet_depth
-    if args.arch != 'resnet':
-        depth = ''
-    path = f'{filename}{args.arch}{depth}_lr:{lr}_sp:{sp}_{time}{extension}'
-    return path
-
-
-class LMOConv(nn.Module):
-    def __init__(self, lmo_fun):
-        super().__init__()
-        self.lmo_fun = lmo_fun
-
-    def forward(self, u, v):
-        b, N, C, m, n = u.shape
-        # print(u.shape, v.shape)
-        update_dir, max_step_size = self.lmo_fun(
-            u.permute(0, 3, 4, 1, 2), v.permute(0, 3, 4, 1, 2))
-        return update_dir.reshape(b, N, C, m, n), max_step_size
-
-    
 def init_best_dict(args):
     keys = ['args', 'model_state_dict', 'optimizer_state_dict', 
             'opt_scheduler_state_dict', 'bias_opt_scheduler_state_dict', 
@@ -306,12 +175,14 @@ def init_best_dict(args):
     values = [args, None, None, None, None, None, None, 0, 0, 0, 0, 0, 0]
     return {keys[i]:values[i] for i in range(len(keys))}
 
+
 def update_best_dict(best_dict, updates_dict):
     for k, v in updates_dict.items():
         if k in best_dict:
             best_dict[k] = copy.deepcopy(v)
     return best_dict
-                                             
+
+
 def log_current_training_epoch(test_loader, accuracy, 
                                loss, sparsity, rank, optimizer, epoch):
     wandb.log({
