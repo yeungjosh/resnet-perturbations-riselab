@@ -83,7 +83,7 @@ def get_sparsity_and_rank(opt, splitting=True):
                 nnzero += (torch.abs(p) >= threshold).sum()
                 if p.ndim == 4:
                     ranks = torch.linalg.matrix_rank(p.clone().permute((2, 3, 1, 0)))
-                if p.ndim > 1:
+                elif p.ndim > 1:
                     ranks = torch.linalg.matrix_rank(p)
 
             n_params += p.numel()
@@ -91,9 +91,8 @@ def get_sparsity_and_rank(opt, splitting=True):
             q = p.clone()
             if p.ndim == 4:
                 q = p.clone().permute((2, 3, 1, 0))
-            if p.ndim > 1:
-                total_rank += ranks.sum()
-                max_rank += min(q.shape[-2:]) * ranks.numel()
+            total_rank += ranks.sum()
+            max_rank += min(q.shape[-2:]) * ranks.numel()
 
     return nnzero / n_params, total_rank / max_rank
 
