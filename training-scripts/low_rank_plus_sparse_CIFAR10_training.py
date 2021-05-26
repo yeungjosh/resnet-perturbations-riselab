@@ -300,22 +300,21 @@ def main():
 
     print("Make constraints/penalties...")
     constraints_sparsity = chop.constraints.make_model_constraints(model,
-                                                                ord=1,
-                                                                value=args.l1_constraint_size,
-                                                                constrain_bias=False,
-                                                                penalty=args.penalty)
+                                                                   ord=1,
+                                                                   value=args.l1_constraint_size,
+                                                                   constrain_bias=False,
+                                                                   penalty=True)
     constraints_low_rank = chop.constraints.make_model_constraints(model,
-                                                                ord='nuc',
-                                                                value=args.nuc_constraint_size,
-                                                                constrain_bias=False,
-                                                                penalty=args.penalty)
+                                                                   ord='nuc',
+                                                                   value=args.nuc_constraint_size,
+                                                                   constrain_bias=False,
+                                                                   penalty=False)
 
     if args.no_splitting:
         optimizer = torch.optim.SGD(
             model.parameters(), lr=args.lr, momentum=args.momentum)
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer, step_size=args.lr_decay_step, gamma=args.lr_decay)
-        # TODO: figure out subgradient descent on penalized L1 / tracenorm here!
         bias_opt = None
         bias_scheduler = None
         retractionScheduler = None
@@ -345,7 +344,7 @@ def main():
                                                     momentum=args.momentum,
                                                     weight_decay=args.weight_decay,
                                                     normalization=args.grad_norm,
-                                                    generalized_lmo=args.penalty)
+                                                    generalized_lmo=False)
 
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer, step_size=args.lr_decay_step, gamma=args.lr_decay)
