@@ -36,16 +36,28 @@ def log_opt_state(opt, epoch, splitting=True):
         for p in group['params']:
             state = opt.state[p]
             if p.ndim == 4:
-                _, s, _ = torch.linalg.svd(p.permute(2, 3, 0, 1))
+                try:
+                    _, s, _ = torch.linalg.svd(p.permute(2, 3, 0, 1))
+                except:
+                    s = torch.zeros(1)
             elif p.ndim == 2:
-                _, s, _ = torch.linalg.svd(p)
+                try:
+                    _, s, _ = torch.linalg.svd(p)
+                except:
+                    s = torch.zeros(1)
             singular_values.append(s.flatten().detach().cpu())
             values.append(p.flatten().detach().cpu())
             if splitting:
                 if p.ndim == 4:
-                    _, s, _ = torch.linalg.svd(state['y'].permute(2, 3, 0, 1))
+                    try:
+                        _, s, _ = torch.linalg.svd(state['y'].permute(2, 3, 0, 1))
+                    except:
+                        s = torch.zeros(1)
                 elif p.ndim == 2:
-                    _, s, _ = torch.linalg.svd(state['y'])
+                    try:
+                        _, s, _ = torch.linalg.svd(state['y'])
+                    except:
+                        s = torch.zeros(1)
                 singular_values_lr.append(s.flatten().detach().cpu())
                 values_sparse.append(state['x'].flatten().detach().cpu())
 
@@ -76,16 +88,28 @@ def get_sparsity_and_rank(opt, splitting=True):
                 state = opt.state[p]
                 nnzero += (~torch.isclose(state['x'], torch.zeros_like(p))).sum()
                 if p.ndim == 4:
-                    ranks = torch.linalg.matrix_rank(state['y'].clone().permute((2, 3, 1, 0)))
+                    try:
+                        ranks = torch.linalg.matrix_rank(state['y'].clone().permute((2, 3, 1, 0)))
+                    except:
+                        ranks = torch.zeros(1)
                 elif p.ndim > 1:
-                    ranks = torch.linalg.matrix_rank(state['y'])
+                    try:
+                        ranks = torch.linalg.matrix_rank(state['y'])
+                    except:
+                        ranks = torch.zeros(1)
 
             else:
                 nnzero += (torch.abs(p) >= threshold).sum()
                 if p.ndim == 4:
-                    ranks = torch.linalg.matrix_rank(p.clone().permute((2, 3, 1, 0)))
+                    try:
+                        ranks = torch.linalg.matrix_rank(p.clone().permute((2, 3, 1, 0)))
+                    except:
+                        ranks = torch.zeros(1)
                 elif p.ndim > 1:
-                    ranks = torch.linalg.matrix_rank(p)
+                    try:
+                        ranks = torch.linalg.matrix_rank(p)
+                    except:
+                        ranks = torch.zeros(1)
 
             n_params += p.numel()
             
