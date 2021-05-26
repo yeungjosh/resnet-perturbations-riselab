@@ -32,20 +32,25 @@ import matplotlib.pyplot as plt
 ### --------- ###
 base_path = 'Low Rank + Sparse Models'
 MODEL_PATHS = {
-    'old-LR+SP': join(base_path, 'Pre-bug fix/run210507_015518 -- best performing LR + S model.chkpt'),
-    'old-LR7'  : join(base_path, 'Pre-bug fix/run210509_234008 -- low rank 7.chkpt'),
-    'old-LR70' : join(base_path, 'Pre-bug fix/run210509_234008 -- low rank only 70.chkpt'),
-    'old-SP'   : join(base_path, 'Pre-bug fix/run210509_234915 -- sparse only.chkpt'),
-    'SGD'      : join(base_path, 'run210510_235114 -- SGD.chkpt'),
-    'LR_old'   : join(base_path, 'run210513_020753 -- nuc 150 l1 0.chkpt'),
-    'LR'       : join(base_path, 'run210514_130300 -- Best Perf Conv reshape.chkpt'),
-    'SP'       : join(base_path, 'run210513_020757 -- nuc 0 l1 80.chkpt'),
-    'LR+SP'    : join(base_path, 'run210513_020800 -- nuc 100 l1 40.chkpt'),
-    'L1_LR+SP'    : join('/scratch/data/models/runresnet20_lr:0.293157841700743_sp:2.2747436939077834e-07_210518_012327.chkpt'),
-    'wednesday_sp_works': join(base_path, 'deft-sweep-23.chkpt'),
-    'bad_lr': join(base_path, 'flowing-sweep-68.chkpt'),
-    'torchvision_resnet': join(base_path, 'flowing-sweep-68.chkpt'),
-    'new': join(base_path, 'lilac-sweep-2.chkpt'),
+    'SGD': join(base_path, 'SGD.chkpt'),
+    'SGD_SP': join(base_path, 'SGD_SP_0.005.chkpt'),
+    'CHOP_LR': join(base_path, 'CHOP_LR.chkpt'),
+    'CHOP_SP': join(base_path, 'CHOP_SP.chkpt'),
+#     'old-LR+SP': join(base_path, 'Pre-bug fix/run210507_015518 -- best performing LR + S model.chkpt'),
+#     'old-LR7'  : join(base_path, 'Pre-bug fix/run210509_234008 -- low rank 7.chkpt'),
+#     'old-LR70' : join(base_path, 'Pre-bug fix/run210509_234008 -- low rank only 70.chkpt'),
+#     'old-SP'   : join(base_path, 'Pre-bug fix/run210509_234915 -- sparse only.chkpt'),
+#     'SGD'      : join(base_path, 'run210510_235114 -- SGD.chkpt'),
+#     'LR_old'   : join(base_path, 'run210513_020753 -- nuc 150 l1 0.chkpt'),
+#     'LR'       : join(base_path, 'run210514_130300 -- Best Perf Conv reshape.chkpt'),
+#     'SP'       : join(base_path, 'run210513_020757 -- nuc 0 l1 80.chkpt'),
+#     'LR+SP'    : join(base_path, 'run210513_020800 -- nuc 100 l1 40.chkpt'),
+#     'L1_LR+SP'    : join('/scratch/data/models/runresnet20_lr:0.293157841700743_sp:2.2747436939077834e-07_210518_012327.chkpt'),
+#     'wednesday_sp_works': join(base_path, 'deft-sweep-23.chkpt'),
+#     'bad_lr': join(base_path, 'flowing-sweep-68.chkpt'),
+#     'new': join(base_path, 'flowing-sweep-68.chkpt'),
+#     'torchvision_resnet': join(base_path, 'flowing-sweep-68.chkpt'),
+#     'new': join(base_path, 'lilac-sweep-2.chkpt'),
 }
 
 DEFAULT_ARGS = EasyDict({
@@ -486,11 +491,6 @@ def load(checkpoint_path, args=None, keep_sgd_optimizer=True):
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer, step_size=args.lr_decay_step, gamma=args.lr_decay)
 
-        if args.retraction:
-            retractionScheduler = RetractionLR(optimizer=optimizer)
-        else:
-            retractionScheduler = None
-
         bias_params = (param for param, lmo in zip(model.parameters(), lmos)
                        if lmo is None)
         bias_opt = torch.optim.SGD(
@@ -500,21 +500,16 @@ def load(checkpoint_path, args=None, keep_sgd_optimizer=True):
 
     epoch = checkpoint['epoch']
     print('Loading data')
-    for name, thing in zip(['model_state_dict', 'optimizer_state_dict', 'opt_scheduler_state_dict',
-                            'opt_bias_state_dict', 'bias_opt_scheduler_state_dict',
-                            'retraction_scheduler_state_dict'],
-                           [model, optimizer, scheduler, bias_opt,
-                            bias_scheduler, retractionScheduler]):
+    for name, thing in zip(['model_state_dict', 'optimizer_state_dict'],
+                           [model, optimizer]):
 
-        excl_list = ['optimizer_state_dict', 'opt_bias_state_dict', 'bias_opt_scheduler_state_dict', 'retraction_scheduler_state_dict']
+        excl_list = ['optimizer_state_dict', 'opt_bias_state_dict']
         if thing is not None and not ((name in excl_list) and (keep_sgd_optimizer==False)):
             thing.load_state_dict(checkpoint[name])
 
     model.eval()
 
-    return model, optimizer, scheduler, bias_opt, bias_scheduler, retractionScheduler, epoch
-
-# This example is for the best performing model we have, on Ben's ResNet
+    return model, optimizer
 
 
 
@@ -525,8 +520,8 @@ def load(checkpoint_path, args=None, keep_sgd_optimizer=True):
 @torch.no_grad()
 def get_model_optimizer_and_copies(model_filepath, keep_sgd_optimizer=True):
     # does not support args
-    model, optimizer, _, _, _, _, _ = load(model_filepath, keep_sgd_optimizer=keep_sgd_optimizer)
-    model_copy, optimizer_copy, _, _, _, _, _ = load(model_filepath, keep_sgd_optimizer=keep_sgd_optimizer)
+    model, optimizer = load(model_filepath, keep_sgd_optimizer=keep_sgd_optimizer)
+    model_copy, optimizer_copy = load(model_filepath, keep_sgd_optimizer=keep_sgd_optimizer)
 
     return model, optimizer, model_copy, optimizer_copy
 
@@ -598,10 +593,9 @@ def plot_sp_and_lr(sp_values, lr_sing_values, model_name):
 ### GLOBAL WEIGHT PRUNING ###
 ### --------------------- ###
 def get_module_from_parameter(name, module, p, sensitivity=1e-2):
-    if ((hasattr(module, 'weight')) and 
-        ('downsample' not in name) and
+    if ((hasattr(module, 'weight')) and
         (module.weight.shape == p.shape) and
-        (torch.allclose(module.weight, p))):
+        (torch.allclose(module.weight, p, atol=1e-4))):
         return module
 
   # go through each of the children
@@ -615,12 +609,16 @@ def get_module_from_parameter(name, module, p, sensitivity=1e-2):
 def sparsify_weights(model, optimizer, model_copy, optimizer_copy, pruning_pct=0.):
     # get the parameters we want to prune
     parameters_to_prune = []
-    for p in optimizer_copy.param_groups[0]['params']:
-        module = get_module_from_parameter('model', model, p)
+    optimizer_copy_params = optimizer_copy.param_groups[0]['params']
+    optimizer_params = optimizer.param_groups[0]['params']
+    module_and_p = []
+    for p_copy, p in zip(optimizer_copy_params, optimizer_params):
+        module = get_module_from_parameter('model', model_copy, p_copy)
         parameters_to_prune.append((module, 'weight'))
+        module_and_p.append([module, p])
 
+#     print(f'parameters to prune: {parameters_to_prune}')
     # prune the parameters
-    print(parameters_to_prune)
     prune.global_unstructured(
         parameters_to_prune,
         pruning_method=prune.L1Unstructured,
@@ -628,15 +626,21 @@ def sparsify_weights(model, optimizer, model_copy, optimizer_copy, pruning_pct=0
     )
 
     # for each parameter, get the mask
-    for p in optimizer.param_groups[0]['params']:
-        module = get_module_from_parameter('model', model, p)
-        if module is None:
-            continue
+    pruned_weights = 0
+    for module, p in module_and_p:
         mask = list(module.named_buffers())
-        if len(mask) > 1:
-            print('ERROR: Should not have more than one mask')
         mask = mask[0][1].long()
-
+        pruned_weights += ((-1)*(mask-1)).sum()
+#     for p in optimizer.param_groups[0]['params']:
+#         module = get_module_from_parameter('model', model, p)
+#         if module is None:
+#             continue
+#         mask = list(module.named_buffers())
+#         if len(mask) > 1:
+#             print('ERROR: Should not have more than one mask')
+#         mask = mask[0][1].long()
+#         pruned_weights += mask.sum()
+        
         if ('y' in optimizer.state[p]) and ('x' in optimizer.state[p]):    
             lr = optimizer.state[p]['y'].clone()
             sp = optimizer.state[p]['x'].clone()
@@ -646,7 +650,7 @@ def sparsify_weights(model, optimizer, model_copy, optimizer_copy, pruning_pct=0
         else:
             p.copy_(p.data*mask)
 
-    return model
+    return pruned_weights
 
 
 ### ---------------- ###
@@ -681,7 +685,6 @@ def prune_sv_for_parameter(p, fraction_lr=0.):
 
     k = (~mask).sum()
     if p.ndim == 2:
-        print(p.shape)
         m, n = p.shape
         initial_cost = m*n
         compressed_cost = k*(m+n)
@@ -698,32 +701,29 @@ def prune_sv_for_parameter(p, fraction_lr=0.):
 
 
 @torch.no_grad()
-def sparsify_singular_values(model, optimizer, model_copy, optimizer_copy, pruning_pct=0.):
+def sparsify_singular_values(model, optimizer, pruning_pct=0.):
     # deal with the case of having low_rank
     non_pruned_cost, pruned_cost = 0, 0
     for p in optimizer.param_groups[0]['params']:
-        if 'y' in optimizer_copy.state[p]:
-            low_rank = optimizer_copy.state[p]['y'].clone()
+        if 'y' in optimizer.state[p]:
+            low_rank = optimizer.state[p]['y'].clone()
             pruned_low_rank, initial_cost, compressed_cost = prune_sv_for_parameter(low_rank,
                                                                                     pruning_pct)
-            non_pruned_cost += initial_cost
-            pruned_cost += compressed_cost
-            sparse = optimizer_copy.state[p]['x'].clone()
-            if sparse is None:
-                p.copy_(pruned_low_rank)
-            else:
-                p.copy_(pruned_low_rank + sparse)
         else:
             pruned_low_rank, initial_cost, compressed_cost = prune_sv_for_parameter(p.clone(), 
                                                                                     pruning_pct)
-            non_pruned_cost += initial_cost
-            pruned_cost += compressed_cost
+        sparse = None
+        if 'x' in optimizer.state[p]:
+            sparse = optimizer.state[p]['x'].clone()
+            
+        if sparse is None:
             p.copy_(pruned_low_rank)
-    
-    print(f'total non_pruned_cost: {non_pruned_cost}')
-    print(f'total pruned_cost: {pruned_cost}')
-    print(f'compression ratio: {non_pruned_cost/pruned_cost}')
+        else:
+            p.copy_(pruned_low_rank + sparse)
+            
+        non_pruned_cost += initial_cost
+        pruned_cost += compressed_cost
 
-    return model, non_pruned_cost, pruned_cost
+    return non_pruned_cost - pruned_cost
 
 
