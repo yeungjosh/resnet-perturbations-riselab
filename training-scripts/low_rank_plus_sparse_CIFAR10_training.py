@@ -323,7 +323,7 @@ def main():
         proxes = [constraint.prox if constraint else None
                   for constraint in constraints_sparsity]
         lmos = [constraint.lmo if constraint else None
-                for constraint in constraints_low_rank]
+                for constraint in constraints_sparsity]
 
         proxes_lr = [constraint.prox if constraint else None
                      for constraint in constraints_low_rank]
@@ -337,8 +337,8 @@ def main():
         print("Initialize optimizer...")
         optimizer = chop.stochastic.SplittingProxFW(model.parameters(),
                                                     lmo=lmos,
-                                                    prox1=proxes,
-                                                    prox2=proxes_lr,
+                                                    prox1=proxes_lr,
+                                                    prox2=proxes,
                                                     lr=args.lr,
                                                     lipschitz=args.lipschitz,
                                                     momentum=args.momentum,
