@@ -138,7 +138,7 @@ def train(args, model, device, train_loader, opt, opt_bias, epoch,
             opt_bias.zero_grad()
         output = model(data)
         loss = F.cross_entropy(output, target)
-        if args.penalty and not splitting:
+        if args.penalty and args.optimizer=='sgd':
             for param, sp_penalty, lr_penalty in zip(model.parameters(), sparse_penalties, low_rank_penalties):
                 if sp_penalty and sp_penalty.alpha > 0.:
                     loss += sp_penalty(param).sum()
@@ -266,7 +266,8 @@ def main():
                         help='enable retraction of the learning rate')
     parser.add_argument('--penalty', type=str, default=True,
                         help='if passed, uses a penalized formulation rather than constrained.')
-    parser.add_argument('--no_splitting', action='store_true', default=False)
+    parser.add_argument('--optimizer', type=str, default='splitting',
+                        help='Choose one of "sgd", "fw", "splitting"')
     parser.add_argument('--log_model_interval', type=int, default=10,
                         help='how many epochs to wait before saving the state of everything')
 
@@ -324,41 +325,54 @@ def main():
 
     print("Make constraints/penalties...")
     constraints_sparsity = chop.constraints.make_model_constraints(model,
-                                                                   ord=1,
+                                                                   ord=2,
                                                                    value=args.l1_constraint_size,
                                                                    constrain_bias=False,
-                                                                   penalty=True)
+                                                                   penalty=False)
     constraints_low_rank = chop.constraints.make_model_constraints(model,
                                                                    ord='nuc',
                                                                    value=args.nuc_constraint_size,
                                                                    constrain_bias=False,
                                                                    penalty=False)
-
-    if args.no_splitting:
-        optimizer = torch.optim.SGD(
-            model.parameters(), lr=args.lr, momentum=args.momentum)
-        scheduler = torch.optim.lr_scheduler.StepLR(
-            optimizer, step_size=args.lr_decay_step, gamma=args.lr_decay)
-        bias_opt = None
-        bias_scheduler = None
-        retractionScheduler = None
-
-    else:
-        proxes = [constraint.prox if constraint else None
-                  for constraint in constraints_sparsity]
-        lmos = [constraint.lmo if constraint else None
+    proxes = [constraint.prox if constraint else None
                 for constraint in constraints_sparsity]
+    lmos = [constraint.lmo if constraint else None
+            for constraint in constraints_sparsity]
 
-        proxes_lr = [constraint.prox if constraint else None
-                     for constraint in constraints_low_rank]
+    proxes_lr = [constraint.prox if constraint else None
+                    for constraint in constraints_low_rank]
 
-        # Unconstrain downsampling layers
-        for k, (name, param) in enumerate(model.named_parameters()):
-            if 'conv' in name or 'shortcut' in name:
-                if lmos[k]:
-                    lmos[k] = LMOConv(lmos[k])
+    # Unconstrain downsampling layers
+    for k, (name, param) in enumerate(model.named_parameters()):
+        if 'conv' in name or 'shortcut' in name:
+            if lmos[k]:
+                lmos[k] = LMOConv(lmos[k])
 
-        print("Initialize optimizer...")
+    print("Initialize optimizer...")
+    if args.optimizer == 'fw':
+        args.no_splitting = True
+        optimizer = chop.stochastic.FrankWolfe(model.parameters(),
+                                                lmo=lmos,
+                                                prox=proxes,
+                                                lr=args.lr,
+                                                momentum=args.momentum,
+                                                weight_decay=args.weight_decay,
+                                                normalization=args.grad_norm)
+
+
+        bias_params = (param for param, lmo in zip(model.parameters(), lmos)
+                       if lmo is None)
+        bias_opt = torch.optim.SGD(
+            bias_params, lr=args.lr_bias, momentum=args.momentum)
+        bias_scheduler = torch.optim.lr_scheduler.StepLR(
+            bias_opt, step_size=args.lr_decay_step, gamma=args.lr_decay)
+
+        if args.retraction:
+            retractionScheduler = RetractionLR(optimizer=optimizer)
+        else:
+            retractionScheduler = None
+
+    elif args.optimizer == 'splitting':
         optimizer = chop.stochastic.SplittingProxFW(model.parameters(),
                                                     lmo=lmos,
                                                     prox1=proxes_lr,
@@ -369,9 +383,6 @@ def main():
                                                     weight_decay=args.weight_decay,
                                                     normalization=args.grad_norm,
                                                     generalized_lmo=False)
-
-        scheduler = torch.optim.lr_scheduler.StepLR(
-            optimizer, step_size=args.lr_decay_step, gamma=args.lr_decay)
 
         if args.retraction:
             retractionScheduler = RetractionLR(optimizer=optimizer)
@@ -384,6 +395,20 @@ def main():
             bias_params, lr=args.lr_bias, momentum=args.momentum)
         bias_scheduler = torch.optim.lr_scheduler.StepLR(
             bias_opt, step_size=args.lr_decay_step, gamma=args.lr_decay)
+
+    elif args.optimizer == 'sgd':
+        args.no_splitting = True
+        optimizer = torch.optim.SGD(
+            model.parameters(), lr=args.lr, momentum=args.momentum)
+        bias_opt = None
+        bias_scheduler = None
+        retractionScheduler = None
+
+    else:
+        raise ValueError("Unknown optimizer")
+
+    scheduler = torch.optim.lr_scheduler.StepLR(
+        optimizer, step_size=args.lr_decay_step, gamma=args.lr_decay)
 
     print("Training...")
 
