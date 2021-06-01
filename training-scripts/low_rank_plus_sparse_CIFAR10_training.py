@@ -28,6 +28,12 @@ import wandb
 from tools import RetractionLR, RunningAverage, AverageMeter, LMOConv, get_model_logpath 
 
 
+ACC_THRESHOLDS = {
+    'cifar' : .4,
+    'imagenet' : .15
+}
+
+
 def log_opt_state(opt, epoch, splitting=True):
     singular_values, values = [], []
     singular_values_lr, values_sparse  = [], []
@@ -138,11 +144,11 @@ def train(args, model, device, train_loader, opt, opt_bias, epoch,
             opt_bias.zero_grad()
         output = model(data)
         loss = F.cross_entropy(output, target)
-        if args.penalty and args.optimizer=='sgd':
+        if args.optimizer=='sgd':
             for param, sp_penalty, lr_penalty in zip(model.parameters(), sparse_penalties, low_rank_penalties):
-                if sp_penalty and sp_penalty.alpha > 0.:
+                if args.isL1Penalty and sp_penalty and sp_penalty.alpha > 0.:
                     loss += sp_penalty(param).sum()
-                if lr_penalty and lr_penalty.alpha > 0.:
+                if args.isNucPenalty and lr_penalty and lr_penalty.alpha > 0.:
                     q = param.clone()
                     if param.ndim == 4:
                         q = param.permute(2, 3, 0, 1)
@@ -165,6 +171,7 @@ def train(args, model, device, train_loader, opt, opt_bias, epoch,
 
 
 def test(args, model, device, test_loader, opt, epoch, splitting=True):
+    # TODO: ADD THRESHOLDING HERE?
     model.eval()
     test_loss = 0
     correct = 0
@@ -225,15 +232,28 @@ def log_new_best(best_dict, optimizer):
         "Best Rank": best_dict['rank'],
         "Best LR": optimizer.param_groups[0]['lr'],
         "Best Epoch": best_dict['epoch']})
-                                             
+
+def make_str_arg_to_bool(args, attribute):
+    str_attribute = getattr(args, attribute)
+    if str_attribute in ('false', 'False', 'f', 'F', False, ''):
+        setattr(args, attribute, False)
+    elif str_attribute in ('true', 'True', 't', 'T', True):
+        setattr(args, attribute, True)
+    else:
+        raise ValueError(f"args.{attribute} was not understood. Please use 'True' or 'False'.")
+    return args
+
     
 def main():
     # Training settings
     parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Example')
-    parser.add_argument('--resnet_depth', type=int, default=20)
-    parser.add_argument('--arch', type=str, default='resnet')
+    parser.add_argument('--dataset', type=str, default='cifar',
+                        choices=['cifar', 'imagenet'])
+    parser.add_argument('--arch', type=str, default='resnet18',
+                        choices=['resnet18', 'resnet20', 'resnet50',
+                                 'resnet50_2x', 'resnet50_4x', 'squeezenet'])
     parser.add_argument('--batch_size', type=int, default=128, metavar='N',
-                        help='input batch size for training (default: 64)')
+                        help='input batch size for training')
     parser.add_argument('--test_batch_size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--epochs', type=int, default=150, metavar='N',
@@ -252,9 +272,9 @@ def main():
                         help='Optimizer weight decay (default: 5e-4)')
     parser.add_argument('--grad_norm', type=str, default='gradient',
                         help='Gradient normalization options')
-    parser.add_argument('--nuc_constraint_size', type=float, default=1e-4,
+    parser.add_argument('--nuc_scale', type=float, default=1e-4,
                         help='Size of the Nuclear norm Ball constraint')
-    parser.add_argument('--l1_constraint_size', type=float, default=1e-4,
+    parser.add_argument('--l1_scale', type=float, default=1e-4,
                         help='Size of the ell-1 norm Ball constraint')
     parser.add_argument('--no_cuda', action='store_true', default=False,
                         help='disables CUDA training')
@@ -262,12 +282,17 @@ def main():
                         help='random seed (default: 1)')
     parser.add_argument('--log_interval', type=int, default=50, metavar='N',
                         help='how many batches to wait before logging training status')
-    parser.add_argument('--retraction', type=str, default=True,
+    parser.add_argument('--retraction', type=str, default=False,
                         help='enable retraction of the learning rate')
-    parser.add_argument('--penalty', type=str, default=True,
+    parser.add_argument('--isL1Penalty', type=str, default='True',
                         help='if passed, uses a penalized formulation rather than constrained.')
+    parser.add_argument('--isNucPenalty', type=str, default='True',
+                        help='if passed, uses a penalized formulation rather than constrained.')
+    parser.add_argument('--lmo', type=str, default='l1',
+                        choices=['l1', 'nuc'],
+                        help='which component uses LMO.')
     parser.add_argument('--optimizer', type=str, default='splitting',
-                        help='Choose one of "sgd", "fw", "splitting"')
+                        choices=['sgd', 'fw', 'splitting'])
     parser.add_argument('--log_model_interval', type=int, default=10,
                         help='how many epochs to wait before saving the state of everything')
 
@@ -282,21 +307,9 @@ def main():
     if args.lr != 'sublinear':
         args.lr = float(args.lr)
 
-    if args.penalty in ('false', 'False', 'f', 'F', False, ''):
-        args.penalty = False
-    elif args.penalty in ('true', 'True', 't', 'T', True):
-        args.penalty = True
-    else:
-        raise ValueError("args.penalty was not understood. Please use 'True' or 'False'.")
-
-    if args.retraction in ('false', 'False', 'f', 'F', False, ''):
-        args.retraction = False
-    elif args.retraction in ('true', 'True', 't', 'T', True):
-        args.retraction = True
-    else:
-        raise ValueError("args.retraction was not understood. Please use 'True' or 'False'.")
-
-    print(f'args.retraction: {args.retraction}')
+    attributes = ['isL1Penalty', 'isNucPenalty', 'retraction']
+    for att in attributes:
+        args = make_str_arg_to_bool(args, att)
 
     wandb.init(project='low-rank_sparse_cifar10', config=args)
 
@@ -309,8 +322,9 @@ def main():
     loaders = dataset.loaders(
         args.batch_size, args.test_batch_size, num_workers=0)
 
+    # TODO: ADD ALL ARCHITECTURES
     print("Preparing model...")
-    if args.arch == 'resnet':
+    if args.arch == 'resnet18':
         # model = ResNet(depth=args.resnet_depth, num_classes=10).to(device)
         # TODO: MAKE THIS BETTER
         model = ResNet18(num_classes=10).to(device)
@@ -325,22 +339,34 @@ def main():
 
     print("Make constraints/penalties...")
     constraints_sparsity = chop.constraints.make_model_constraints(model,
-                                                                   ord=2,
-                                                                   value=args.l1_constraint_size,
+                                                                   ord=1,
+                                                                   value=args.l1_scale,
                                                                    constrain_bias=False,
-                                                                   penalty=False)
+                                                                   penalty=args.isL1Penalty)
     constraints_low_rank = chop.constraints.make_model_constraints(model,
                                                                    ord='nuc',
-                                                                   value=args.nuc_constraint_size,
+                                                                   value=args.nuc_scale,
                                                                    constrain_bias=False,
-                                                                   penalty=False)
-    proxes = [constraint.prox if constraint else None
-                for constraint in constraints_sparsity]
-    lmos = [constraint.lmo if constraint else None
-            for constraint in constraints_sparsity]
+                                                                   penalty=args.isNucPenalty)
+    proxes_sparse = [constraint.prox if constraint else None
+                     for constraint in constraints_sparsity]
+    lmos_sparse = [constraint.lmo if constraint else None
+                   for constraint in constraints_sparsity]
 
-    proxes_lr = [constraint.prox if constraint else None
+    lmos_low_rank = [constraint.lmo if constraint else None
+               for constraint in constraints_low_rank]
+    proxes_low_rank = [constraint.prox if constraint else None
                     for constraint in constraints_low_rank]
+
+    if args.lmo == 'l1':
+        lmos = lmos_sparse
+        proxes = proxes_low_rank
+        proxes_y = proxes_sparse
+    else:
+        lmos = lmos_low_rank
+        proxes = proxes_sparse
+        proxes_y = proxes_low_rank
+    
 
     # Unconstrain downsampling layers
     for k, (name, param) in enumerate(model.named_parameters()):
@@ -353,7 +379,7 @@ def main():
         args.no_splitting = True
         optimizer = chop.stochastic.FrankWolfe(model.parameters(),
                                                 lmo=lmos,
-                                                prox=proxes,
+                                                prox=proxes_y,
                                                 lr=args.lr,
                                                 momentum=args.momentum,
                                                 weight_decay=args.weight_decay,
@@ -375,8 +401,8 @@ def main():
     elif args.optimizer == 'splitting':
         optimizer = chop.stochastic.SplittingProxFW(model.parameters(),
                                                     lmo=lmos,
-                                                    prox1=proxes_lr,
-                                                    prox2=proxes,
+                                                    prox1=proxes,
+                                                    prox2=proxes_y,
                                                     lr=args.lr,
                                                     lipschitz=args.lipschitz,
                                                     momentum=args.momentum,
@@ -452,7 +478,8 @@ def main():
                                           'accuracy': accuracy,
                                           'loss': loss,
                                           'sparsity': sparsity,
-                                          'rank': rank
+                                          'rank': rank,
+                                          'epoch':epoch
                                          })
             log_new_best(best_dict, optimizer)
 
