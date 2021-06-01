@@ -399,6 +399,7 @@ def main():
             retractionScheduler = None
 
     elif args.optimizer == 'splitting':
+        args.no_splitting = False
         optimizer = chop.stochastic.SplittingProxFW(model.parameters(),
                                                     lmo=lmos,
                                                     prox1=proxes,
