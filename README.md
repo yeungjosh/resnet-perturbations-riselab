@@ -1,4 +1,5 @@
-# resnet-perturbations-riselab
+# Resnet Perturbations Riselab Mahoney Group
+Performing perturbation analysis on resnets trained on various optimizers
 
 Run resnet training experiments for perturbation analysis
 
