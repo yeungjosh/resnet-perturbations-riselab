@@ -4,6 +4,7 @@ A comprehensive study analyzing the robustness of ResNet models trained with dif
 
 ## Table of Contents
 
+- [Quick Start](#quick-start)
 - [Project Overview](#project-overview)
 - [Research Motivation](#research-motivation)
 - [ML Methodology](#ml-methodology)
@@ -19,6 +20,32 @@ A comprehensive study analyzing the robustness of ResNet models trained with dif
 - [Results Interpretation](#results-interpretation)
 - [Project Structure](#project-structure)
 - [References](#references)
+
+---
+
+## Quick Start
+
+**Want to understand this project in 5 minutes?**
+
+🎯 **Interactive Browser Demo** (no installation required):
+```bash
+# Just open in your browser!
+open interactive_demo.html
+```
+
+This launches a beautiful interactive dashboard with:
+- 📊 Live robustness curves you can explore
+- 🎨 Interactive perturbation visualization (adjust noise levels in real-time!)
+- 🏗️ ResNet architecture walkthrough
+- ⚙️ Optimizer comparison with detailed explanations
+- 💡 Key insights and methodology
+
+**Or generate static visualizations:**
+```bash
+pip install numpy matplotlib seaborn
+python3 visualization_demo.py
+# Creates 5 publication-quality PNG visualizations
+```
 
 ---
 
@@ -606,7 +633,8 @@ When comparing results:
 resnet-perturbations-riselab/
 │
 ├── README.md                          # This file - comprehensive documentation
-├── visualization_demo.py              # ⭐ Visualization tool (run this first!)
+├── interactive_demo.html              # 🌟 Browser-based interactive demo (open in browser!)
+├── visualization_demo.py              # ⭐ Static visualization generator (requires matplotlib)
 ├── getData.py                         # Data loading utilities
 │
 ├── training-scripts/                  # Model training
