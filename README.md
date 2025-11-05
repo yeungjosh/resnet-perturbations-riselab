@@ -464,6 +464,33 @@ jupyter notebook perturbation_analysis.ipynb
 - `cifar10_perturbation_analysis.ipynb`: CIFAR-10 specific analysis
 - `pytorch_resnet_mnist_{optimizer}.ipynb`: Individual optimizer notebooks
 
+#### Visualization Demo
+
+To quickly understand the project methodology without running full experiments, use the visualization demo:
+
+```bash
+python3 visualization_demo.py
+```
+
+This generates 5 comprehensive visualizations:
+
+1. **demo_perturbations.png**: Shows how different noise types affect images
+2. **demo_robustness_curves.png**: Simulated optimizer comparison curves
+3. **demo_architecture.png**: ResNet architecture diagram
+4. **demo_complete_workflow.png**: End-to-end pipeline visualization
+5. **demo_methodology_summary.png**: Key concepts and metrics
+
+These visualizations are perfect for:
+- Understanding the project methodology
+- Presentations and reports
+- Teaching and learning about robustness analysis
+- Quick reference without running full experiments
+
+**Requirements for visualization**:
+```bash
+pip install numpy matplotlib seaborn
+```
+
 #### Customizing Perturbation Analysis
 
 Edit the script to modify:
@@ -578,7 +605,8 @@ When comparing results:
 ```
 resnet-perturbations-riselab/
 │
-├── README.md                          # This file
+├── README.md                          # This file - comprehensive documentation
+├── visualization_demo.py              # ⭐ Visualization tool (run this first!)
 ├── getData.py                         # Data loading utilities
 │
 ├── training-scripts/                  # Model training
