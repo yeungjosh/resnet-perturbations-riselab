@@ -1,0 +1,20 @@
+{
+  "name": "resnet-robustness-explorer",
+  "version": "1.0.0",
+  "description": "Interactive visualization webapp for exploring ResNet robustness to perturbations",
+  "main": "index.html",
+  "scripts": {
+    "dev": "python3 -m http.server 8000",
+    "build": "echo 'Static site - no build needed'"
+  },
+  "keywords": [
+    "resnet",
+    "robustness",
+    "deep-learning",
+    "visualization",
+    "perturbations",
+    "neural-networks"
+  ],
+  "author": "RISELab - Mahoney Group",
+  "license": "MIT"
+}

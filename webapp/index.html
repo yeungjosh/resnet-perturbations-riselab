@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ResNet Robustness Explorer | RISELab</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --secondary: #ec4899;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --bg-dark: #0f172a;
+            --bg-card: #1e293b;
+            --bg-hover: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #cbd5e1;
+            --border: #334155;
+            --gradient-1: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --gradient-2: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            --gradient-3: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --gradient-4: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+
+        /* Header */
+        header {
+            background: var(--bg-card);
+            border-bottom: 2px solid var(--border);
+            padding: 1.5rem 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo-icon {
+            width: 50px;
+            height: 50px;
+            background: var(--gradient-1);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: white;
+            box-shadow: 0 4px 12px rgba(102, 102, 255, 0.3);
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #667eea 0%, #ec4899 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        nav {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .nav-btn {
+            padding: 0.6rem 1.2rem;
+            background: var(--bg-hover);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .nav-btn:hover {
+            background: var(--primary);
+            border-color: var(--primary);
+            transform: translateY(-2px);
+        }
+
+        .nav-btn.active {
+            background: var(--primary);
+            border-color: var(--primary);
+        }
+
+        /* Hero Section */
+        .hero {
+            padding: 4rem 0;
+            text-align: center;
+            background: linear-gradient(135deg, rgba(102, 110, 234, 0.1) 0%, rgba(236, 72, 153, 0.1) 100%);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .hero h2 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            margin-bottom: 1rem;
+            line-height: 1.2;
+        }
+
+        .hero p {
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+            max-width: 800px;
+            margin: 0 auto 2rem;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.4rem 0.8rem;
+            background: var(--primary);
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin: 0 0.3rem;
+        }
+
+        /* Main Content */
+        main {
+            padding: 3rem 0;
+        }
+
+        .section {
+            display: none;
+            animation: fadeIn 0.5s ease;
+        }
+
+        .section.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            border-color: var(--primary);
+            box-shadow: 0 8px 24px rgba(99, 102, 241, 0.2);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .card-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .card-icon {
+            width: 36px;
+            height: 36px;
+            background: var(--gradient-1);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        }
+
+        /* Grid Layouts */
+        .grid {
+            display: grid;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .grid-2 {
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        }
+
+        .grid-3 {
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        }
+
+        /* Canvas for Perturbations */
+        .canvas-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2rem;
+        }
+
+        .canvas-wrapper {
+            display: flex;
+            gap: 2rem;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .canvas-item {
+            text-align: center;
+        }
+
+        .canvas-item canvas {
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            background: white;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .canvas-label {
+            margin-top: 0.8rem;
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: var(--text-primary);
+        }
+
+        /* Controls */
+        .controls {
+            width: 100%;
+            max-width: 600px;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .control-label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .control-value {
+            color: var(--primary);
+            font-weight: 700;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 8px;
+            border-radius: 5px;
+            background: var(--bg-hover);
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--primary);
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(99, 102, 241, 0.5);
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--primary);
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(99, 102, 241, 0.5);
+            border: none;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 0.8rem 1.5rem;
+            border-radius: 8px;
+            border: none;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.95rem;
+            flex: 1;
+            min-width: 120px;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+        }
+
+        .btn-secondary {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--secondary);
+            border-color: var(--secondary);
+            transform: translateY(-2px);
+        }
+
+        /* Stats */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+
+        .stat-card {
+            background: var(--bg-hover);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 800;
+            background: var(--gradient-1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        /* Chart Container */
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin: 2rem 0;
+        }
+
+        /* Optimizer Cards */
+        .optimizer-card {
+            background: var(--bg-hover);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .optimizer-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--primary);
+            box-shadow: 0 8px 24px rgba(99, 102, 241, 0.3);
+        }
+
+        .optimizer-card.selected {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .optimizer-name {
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .optimizer-desc {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+        }
+
+        .optimizer-metric {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-top: 1px solid var(--border);
+        }
+
+        .metric-label {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .metric-value {
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        /* Architecture Visualization */
+        .arch-diagram {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            padding: 2rem;
+            background: var(--bg-hover);
+            border-radius: 12px;
+            overflow-x: auto;
+        }
+
+        .arch-layer {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
+        .arch-block {
+            min-width: 150px;
+            padding: 1.5rem;
+            background: var(--bg-card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .arch-block:hover {
+            border-color: var(--primary);
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+
+        .arch-block-title {
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            color: var(--primary);
+        }
+
+        .arch-block-detail {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .arch-arrow {
+            font-size: 2rem;
+            color: var(--primary);
+        }
+
+        /* Info boxes */
+        .info-box {
+            background: rgba(99, 102, 241, 0.1);
+            border-left: 4px solid var(--primary);
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin: 1.5rem 0;
+        }
+
+        .info-box-title {
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            color: var(--primary);
+        }
+
+        .info-box-content {
+            color: var(--text-secondary);
+            line-height: 1.8;
+        }
+
+        /* Footer */
+        footer {
+            background: var(--bg-card);
+            border-top: 1px solid var(--border);
+            padding: 3rem 0;
+            margin-top: 4rem;
+            text-align: center;
+        }
+
+        .footer-content {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 2rem;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .footer-link {
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+
+        .footer-link:hover {
+            color: var(--primary);
+        }
+
+        /* Loading animation */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid var(--border);
+            border-radius: 50%;
+            border-top-color: var(--primary);
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero h2 {
+                font-size: 2rem;
+            }
+
+            .hero p {
+                font-size: 1rem;
+            }
+
+            .card {
+                padding: 1.5rem;
+            }
+
+            .chart-container {
+                height: 300px;
+            }
+
+            .canvas-wrapper {
+                flex-direction: column;
+            }
+        }
+
+        /* Tooltip */
+        .tooltip {
+            position: relative;
+            display: inline-block;
+        }
+
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 200px;
+            background-color: var(--bg-hover);
+            color: var(--text-primary);
+            text-align: center;
+            border-radius: 8px;
+            padding: 0.5rem;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -100px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            border: 1px solid var(--border);
+            font-size: 0.85rem;
+        }
+
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <div class="logo-icon">R</div>
+                    <div>
+                        <h1>ResNet Robustness Explorer</h1>
+                        <div class="subtitle">RISELab @ UC Berkeley</div>
+                    </div>
+                </div>
+                <nav>
+                    <button class="nav-btn active" data-section="explore">Explore</button>
+                    <button class="nav-btn" data-section="compare">Compare</button>
+                    <button class="nav-btn" data-section="architecture">Architecture</button>
+                    <button class="nav-btn" data-section="about">About</button>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <div class="hero">
+        <div class="container">
+            <h2>How Robust Are Your Neural Networks?</h2>
+            <p>
+                Explore how different optimizers affect ResNet's resilience to input perturbations.
+                Interact with real-time visualizations and discover the impact of noise on model performance.
+            </p>
+            <div>
+                <span class="badge">SGD</span>
+                <span class="badge">Adam</span>
+                <span class="badge">Adadelta</span>
+                <span class="badge">Adahessian</span>
+                <span class="badge">Frank-Wolfe</span>
+            </div>
+        </div>
+    </div>
+
+    <main class="container">
+        <!-- Explore Section -->
+        <section id="explore" class="section active">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <div class="card-icon">🎨</div>
+                        Interactive Perturbation Playground
+                    </div>
+                </div>
+
+                <div class="canvas-container">
+                    <div class="canvas-wrapper">
+                        <div class="canvas-item">
+                            <canvas id="originalCanvas" width="200" height="200"></canvas>
+                            <div class="canvas-label">Original Image</div>
+                        </div>
+                        <div class="canvas-item">
+                            <canvas id="gaussianCanvas" width="200" height="200"></canvas>
+                            <div class="canvas-label">Gaussian Noise</div>
+                        </div>
+                        <div class="canvas-item">
+                            <canvas id="saltPepperCanvas" width="200" height="200"></canvas>
+                            <div class="canvas-label">Salt & Pepper Noise</div>
+                        </div>
+                    </div>
+
+                    <div class="controls">
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Noise Level</span>
+                                <span class="control-value" id="noiseValue">0.10</span>
+                            </div>
+                            <input type="range" id="noiseSlider" min="0" max="50" value="10" step="1">
+                        </div>
+
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Image Type</span>
+                            </div>
+                            <div class="button-group">
+                                <button class="btn btn-primary" id="btnDigit">Digit</button>
+                                <button class="btn btn-secondary" id="btnCifar">Object</button>
+                                <button class="btn btn-secondary" id="btnPattern">Pattern</button>
+                            </div>
+                        </div>
+
+                        <div class="button-group">
+                            <button class="btn btn-primary" id="btnAnimate">Animate Noise</button>
+                            <button class="btn btn-secondary" id="btnReset">Reset</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="statNoise">10%</div>
+                        <div class="stat-label">Current Noise Level</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statAccuracy">87%</div>
+                        <div class="stat-label">Est. Accuracy (SGD)</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statPixels">200</div>
+                        <div class="stat-label">Corrupted Pixels</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="info-box">
+                <div class="info-box-title">What Are Perturbations?</div>
+                <div class="info-box-content">
+                    Perturbations are small changes to input data that can significantly affect neural network predictions.
+                    <strong>Gaussian noise</strong> adds random values from a normal distribution, simulating sensor noise.
+                    <strong>Salt & Pepper noise</strong> randomly sets pixels to maximum or minimum values, mimicking transmission errors.
+                    Understanding how models handle these perturbations is crucial for real-world deployment.
+                </div>
+            </div>
+        </section>
+
+        <!-- Compare Section -->
+        <section id="compare" class="section">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <div class="card-icon">📊</div>
+                        Optimizer Robustness Comparison
+                    </div>
+                </div>
+
+                <div class="chart-container">
+                    <canvas id="robustnessChart"></canvas>
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Noise Type</span>
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-primary" id="btnGaussianChart">Gaussian Noise</button>
+                        <button class="btn btn-secondary" id="btnSaltPepperChart">Salt & Pepper</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-3">
+                <div class="optimizer-card selected" data-optimizer="sgd">
+                    <div class="optimizer-name">SGD</div>
+                    <div class="optimizer-desc">Stochastic Gradient Descent with momentum. Known for finding flat minima.</div>
+                    <div class="optimizer-metric">
+                        <span class="metric-label">Clean Accuracy</span>
+                        <span class="metric-value">98.2%</span>
+                    </div>
+                    <div class="optimizer-metric">
+                        <span class="metric-label">Robustness (AUC)</span>
+                        <span class="metric-value">0.89</span>
+                    </div>
+                </div>
+
+                <div class="optimizer-card selected" data-optimizer="adam">
+                    <div class="optimizer-name">Adam</div>
+                    <div class="optimizer-desc">Adaptive learning rates with momentum. Fast convergence but potentially sharp minima.</div>
+                    <div class="optimizer-metric">
+                        <span class="metric-label">Clean Accuracy</span>
+                        <span class="metric-value">98.5%</span>
+                    </div>
+                    <div class="optimizer-metric">
+                        <span class="metric-label">Robustness (AUC)</span>
+                        <span class="metric-value">0.85</span>
+                    </div>
+                </div>
+
+                <div class="optimizer-card selected" data-optimizer="adadelta">
+                    <div class="optimizer-name">Adadelta</div>
+                    <div class="optimizer-desc">Adaptive learning rate method that doesn't require manual tuning.</div>
+                    <div class="optimizer-metric">
+                        <span class="metric-label">Clean Accuracy</span>
+                        <span class="metric-value">97.8%</span>
+                    </div>
+                    <div class="optimizer-metric">
+                        <span class="metric-label">Robustness (AUC)</span>
+                        <span class="metric-value">0.84</span>
+                    </div>
+                </div>
+
+                <div class="optimizer-card selected" data-optimizer="adahessian">
+                    <div class="optimizer-name">Adahessian</div>
+                    <div class="optimizer-desc">Second-order optimizer using Hessian information for better curvature adaptation.</div>
+                    <div class="optimizer-metric">
+                        <span class="metric-label">Clean Accuracy</span>
+                        <span class="metric-value">98.1%</span>
+                    </div>
+                    <div class="optimizer-metric">
+                        <span class="metric-label">Robustness (AUC)</span>
+                        <span class="metric-value">0.87</span>
+                    </div>
+                </div>
+
+                <div class="optimizer-card selected" data-optimizer="frankwolfe">
+                    <div class="optimizer-name">Frank-Wolfe</div>
+                    <div class="optimizer-desc">Projection-free constrained optimization. Enables low-rank + sparse decomposition.</div>
+                    <div class="optimizer-metric">
+                        <span class="metric-label">Clean Accuracy</span>
+                        <span class="metric-value">97.5%</span>
+                    </div>
+                    <div class="optimizer-metric">
+                        <span class="metric-label">Robustness (AUC)</span>
+                        <span class="metric-value">0.86</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="info-box">
+                <div class="info-box-title">Key Findings</div>
+                <div class="info-box-content">
+                    Different optimizers produce models with significantly different robustness profiles.
+                    <strong>SGD with momentum</strong> often finds flatter minima, leading to better generalization and robustness.
+                    <strong>Adam</strong> converges faster but may find sharper minima that are more sensitive to perturbations.
+                    The choice of optimizer affects not just training speed and final accuracy, but also the model's resilience to real-world noise.
+                </div>
+            </div>
+        </section>
+
+        <!-- Architecture Section -->
+        <section id="architecture" class="section">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <div class="card-icon">🏗️</div>
+                        ResNet Architecture
+                    </div>
+                </div>
+
+                <div class="arch-diagram">
+                    <div class="arch-layer">
+                        <div class="arch-block">
+                            <div class="arch-block-title">Input</div>
+                            <div class="arch-block-detail">224×224×1 (MNIST)</div>
+                            <div class="arch-block-detail">32×32×3 (CIFAR-10)</div>
+                        </div>
+                        <div class="arch-arrow">→</div>
+                        <div class="arch-block">
+                            <div class="arch-block-title">Conv Layer</div>
+                            <div class="arch-block-detail">3×3 kernel</div>
+                            <div class="arch-block-detail">BatchNorm + ReLU</div>
+                        </div>
+                        <div class="arch-arrow">→</div>
+                        <div class="arch-block">
+                            <div class="arch-block-title">Residual Block</div>
+                            <div class="arch-block-detail">Skip Connection</div>
+                            <div class="arch-block-detail">2× Conv layers</div>
+                        </div>
+                    </div>
+
+                    <div class="arch-layer">
+                        <div class="arch-block">
+                            <div class="arch-block-title">Stage 1</div>
+                            <div class="arch-block-detail">16 channels</div>
+                            <div class="arch-block-detail">n blocks</div>
+                        </div>
+                        <div class="arch-arrow">→</div>
+                        <div class="arch-block">
+                            <div class="arch-block-title">Stage 2</div>
+                            <div class="arch-block-detail">32 channels</div>
+                            <div class="arch-block-detail">n blocks</div>
+                        </div>
+                        <div class="arch-arrow">→</div>
+                        <div class="arch-block">
+                            <div class="arch-block-title">Stage 3</div>
+                            <div class="arch-block-detail">64 channels</div>
+                            <div class="arch-block-detail">n blocks</div>
+                        </div>
+                    </div>
+
+                    <div class="arch-layer">
+                        <div class="arch-block">
+                            <div class="arch-block-title">Global Avg Pool</div>
+                            <div class="arch-block-detail">Spatial reduction</div>
+                        </div>
+                        <div class="arch-arrow">→</div>
+                        <div class="arch-block">
+                            <div class="arch-block-title">Fully Connected</div>
+                            <div class="arch-block-detail">10 classes</div>
+                            <div class="arch-block-detail">Softmax output</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value">20-110</div>
+                        <div class="stat-label">ResNet Layers</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">Skip</div>
+                        <div class="stat-label">Connection Type</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">110</div>
+                        <div class="stat-label">Training Epochs</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">128</div>
+                        <div class="stat-label">Batch Size</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <div class="card-icon">⚙️</div>
+                        Training Pipeline
+                    </div>
+                </div>
+
+                <div class="grid grid-2">
+                    <div>
+                        <h3 style="margin-bottom: 1rem; color: var(--primary);">Data Preparation</h3>
+                        <ul style="color: var(--text-secondary); line-height: 2;">
+                            <li>MNIST: 28×28 → Resized to 224×224</li>
+                            <li>CIFAR-10: 32×32×3 (RGB)</li>
+                            <li>Normalization: (pixel - mean) / std</li>
+                            <li>Batch size: 128 samples</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h3 style="margin-bottom: 1rem; color: var(--primary);">Hyperparameters</h3>
+                        <ul style="color: var(--text-secondary); line-height: 2;">
+                            <li>Epochs: 110</li>
+                            <li>Weight Decay: 5e-4 (L2)</li>
+                            <li>LR Decay: 0.1× at [30, 60, 90]</li>
+                            <li>Initialization: Kaiming Normal</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="info-box">
+                <div class="info-box-title">Why ResNet?</div>
+                <div class="info-box-content">
+                    ResNets solve the vanishing gradient problem through <strong>skip connections</strong> (residual connections).
+                    Instead of learning H(x), layers learn the residual F(x) = H(x) - x, making it easier to optimize very deep networks.
+                    This architecture enables training networks with 50, 101, or even 152 layers while maintaining stable gradient flow.
+                </div>
+            </div>
+        </section>
+
+        <!-- About Section -->
+        <section id="about" class="section">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <div class="card-icon">🔬</div>
+                        About This Research
+                    </div>
+                </div>
+
+                <div style="color: var(--text-secondary); line-height: 1.8;">
+                    <h3 style="color: var(--primary); margin-bottom: 1rem;">Research Question</h3>
+                    <p style="margin-bottom: 2rem;">
+                        Do different optimization algorithms produce models with varying robustness to input noise?
+                        This project investigates how optimizer choice affects model resilience to perturbations,
+                        providing insights for deploying machine learning in noisy real-world environments.
+                    </p>
+
+                    <h3 style="color: var(--primary); margin-bottom: 1rem;">Methodology</h3>
+                    <p style="margin-bottom: 2rem;">
+                        We train ResNet models on MNIST and CIFAR-10 using five different optimizers (SGD, Adam, Adadelta,
+                        Adahessian, Frank-Wolfe), then systematically test their performance when inputs are corrupted with
+                        Gaussian white noise and salt & pepper noise at varying intensity levels.
+                    </p>
+
+                    <h3 style="color: var(--primary); margin-bottom: 1rem;">Why It Matters</h3>
+                    <p style="margin-bottom: 2rem;">
+                        Real-world ML systems encounter noisy inputs from sensor noise, transmission errors, adversarial attacks,
+                        and natural variations. Understanding which training methods produce inherently robust models can improve
+                        deployment reliability without additional robustness training.
+                    </p>
+
+                    <h3 style="color: var(--primary); margin-bottom: 1rem;">Key Insights</h3>
+                    <ul style="margin-bottom: 2rem; line-height: 2;">
+                        <li>Different optimizers find different local minima with varying robustness properties</li>
+                        <li>SGD with momentum often produces more robust models due to flatter minima</li>
+                        <li>Fast-converging adaptive methods may sacrifice robustness for training speed</li>
+                        <li>Second-order methods show promise for balancing accuracy and robustness</li>
+                    </ul>
+
+                    <h3 style="color: var(--primary); margin-bottom: 1rem;">Research Team</h3>
+                    <p>
+                        This research is conducted by the <strong>Mahoney Group</strong> at <strong>RISELab</strong>,
+                        UC Berkeley. Our work focuses on understanding optimization dynamics, generalization, and robustness
+                        in deep learning systems.
+                    </p>
+                </div>
+            </div>
+
+            <div class="grid grid-2">
+                <div class="card">
+                    <h3 style="color: var(--primary); margin-bottom: 1rem;">Datasets</h3>
+                    <div style="color: var(--text-secondary);">
+                        <p style="margin-bottom: 1rem;"><strong>MNIST</strong>: Handwritten digits (28×28 grayscale)</p>
+                        <ul style="margin-left: 1.5rem; line-height: 1.8;">
+                            <li>60,000 training images</li>
+                            <li>10,000 test images</li>
+                            <li>10 classes (digits 0-9)</li>
+                        </ul>
+                        <p style="margin: 1rem 0;"><strong>CIFAR-10</strong>: Natural images (32×32 RGB)</p>
+                        <ul style="margin-left: 1.5rem; line-height: 1.8;">
+                            <li>50,000 training images</li>
+                            <li>10,000 test images</li>
+                            <li>10 classes (airplane, car, etc.)</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 style="color: var(--primary); margin-bottom: 1rem;">Get the Code</h3>
+                    <div style="color: var(--text-secondary); line-height: 1.8;">
+                        <p style="margin-bottom: 1rem;">
+                            This webapp is part of the full research repository. To reproduce experiments or dive deeper:
+                        </p>
+                        <a href="https://github.com/yeungjosh/resnet-perturbations-riselab"
+                           style="display: inline-block; padding: 1rem 2rem; background: var(--primary); color: white;
+                                  text-decoration: none; border-radius: 8px; font-weight: 600; margin-top: 1rem;">
+                            View on GitHub
+                        </a>
+                        <p style="margin-top: 1.5rem; font-size: 0.9rem;">
+                            Includes training scripts, analysis notebooks, and visualization tools.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <div style="font-weight: 600; font-size: 1.1rem; margin-bottom: 0.5rem;">
+                    ResNet Robustness Explorer
+                </div>
+                <div style="color: var(--text-secondary); margin-bottom: 1rem;">
+                    Mahoney Group • RISELab • UC Berkeley
+                </div>
+                <div class="footer-links">
+                    <a href="https://github.com/yeungjosh/resnet-perturbations-riselab" class="footer-link">GitHub</a>
+                    <a href="https://rise.cs.berkeley.edu/" class="footer-link">RISELab</a>
+                    <a href="https://arxiv.org/abs/1512.03385" class="footer-link">ResNet Paper</a>
+                </div>
+                <div style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 1rem;">
+                    Built with ❤️ for reproducible ML research
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
