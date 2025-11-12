@@ -27,7 +27,28 @@ A comprehensive study analyzing the robustness of ResNet models trained with dif
 
 **Want to understand this project in 5 minutes?**
 
-🎯 **Interactive Browser Demo** (no installation required):
+### 🚀 NEW: Interactive Web Application
+
+**Full-featured web app** (deployable to Vercel, Netlify, etc.):
+```bash
+cd webapp
+python3 -m http.server 8000
+# Open http://localhost:8000
+```
+
+The webapp includes:
+- 🎨 Real-time perturbation visualization with adjustable noise
+- 📊 Interactive robustness curves for all optimizers
+- 🏗️ Animated ResNet architecture explorer
+- ⚙️ Optimizer comparison dashboard
+- 📱 Mobile-friendly, modern dark theme
+- ⚡ No installation needed - pure HTML/CSS/JS
+
+**Deploy to Vercel in seconds:** See [`webapp/README.md`](webapp/README.md)
+
+### 📄 Static Browser Demo
+
+🎯 **Lightweight HTML demo** (no server required):
 ```bash
 # Just open in your browser!
 open interactive_demo.html
@@ -40,7 +61,9 @@ This launches a beautiful interactive dashboard with:
 - ⚙️ Optimizer comparison with detailed explanations
 - 💡 Key insights and methodology
 
-**Or generate static visualizations:**
+### 📊 Generate Static Visualizations
+
+**Publication-quality PNG images:**
 ```bash
 pip install numpy matplotlib seaborn
 python3 visualization_demo.py
