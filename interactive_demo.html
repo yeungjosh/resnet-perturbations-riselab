@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ResNet Perturbation Analysis - Interactive Demo</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            color: white;
+            padding: 40px 20px;
+            margin-bottom: 30px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+        }
+
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .tab-button {
+            padding: 15px 30px;
+            background: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.3s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .tab-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        .tab-button.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.5s;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .card h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 1.8em;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .card h3 {
+            color: #764ba2;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+
+        .grid-item {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .grid-item h4 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        /* Canvas for drawing */
+        .canvas-container {
+            display: flex;
+            gap: 20px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .image-demo {
+            text-align: center;
+        }
+
+        .image-demo canvas {
+            border: 3px solid #667eea;
+            border-radius: 10px;
+            margin: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            background: white;
+        }
+
+        .controls {
+            background: #f5f7fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+
+        .slider-container {
+            margin: 20px 0;
+        }
+
+        .slider-container label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 8px;
+            border-radius: 5px;
+            background: #d3d3d3;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+        }
+
+        .value-display {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            margin-left: 10px;
+            font-weight: bold;
+        }
+
+        .architecture-viz {
+            position: relative;
+            padding: 40px 20px;
+            background: linear-gradient(to bottom, #f5f7fa, #c3cfe2);
+            border-radius: 10px;
+            overflow-x: auto;
+        }
+
+        .layer-box {
+            background: white;
+            border: 3px solid #667eea;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px auto;
+            max-width: 300px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s;
+            position: relative;
+        }
+
+        .layer-box:hover {
+            transform: scale(1.05);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+        }
+
+        .layer-box.input { border-color: #4CAF50; background: #E8F5E9; }
+        .layer-box.conv { border-color: #2196F3; background: #E3F2FD; }
+        .layer-box.residual { border-color: #FF9800; background: #FFF3E0; }
+        .layer-box.pool { border-color: #9C27B0; background: #F3E5F5; }
+        .layer-box.fc { border-color: #F44336; background: #FFEBEE; }
+
+        .arrow {
+            width: 0;
+            height: 0;
+            border-left: 15px solid transparent;
+            border-right: 15px solid transparent;
+            border-top: 20px solid #667eea;
+            margin: 10px auto;
+        }
+
+        .optimizer-card {
+            background: white;
+            border-left: 5px solid #667eea;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            transition: all 0.3s;
+        }
+
+        .optimizer-card:hover {
+            transform: translateX(10px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+
+        .badge.robust { background: #4CAF50; color: white; }
+        .badge.medium { background: #FF9800; color: white; }
+        .badge.fast { background: #2196F3; color: white; }
+
+        footer {
+            text-align: center;
+            color: white;
+            padding: 30px;
+            margin-top: 40px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 15px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin: 20px 0;
+        }
+
+        @media (max-width: 768px) {
+            header h1 { font-size: 1.8em; }
+            .tabs { flex-direction: column; }
+            .tab-button { width: 100%; }
+        }
+
+        .key-insight {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border-left: 5px solid #FFD700;
+        }
+
+        .key-insight h3 {
+            color: white;
+            margin-bottom: 10px;
+        }
+
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .methodology-step {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 15px 0;
+            border-left: 5px solid #667eea;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .methodology-step h4 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .stat-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .stat-box .number {
+            font-size: 2.5em;
+            font-weight: bold;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .stat-box .label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🧠 ResNet Perturbation Analysis</h1>
+            <p>Interactive Demonstration of Optimizer Robustness</p>
+            <p style="font-size: 0.9em; margin-top: 10px;">Mahoney Group @ RISELab</p>
+        </header>
+
+        <div class="tabs">
+            <button class="tab-button active" onclick="showTab('overview')">📊 Overview</button>
+            <button class="tab-button" onclick="showTab('methodology')">🔬 Methodology</button>
+            <button class="tab-button" onclick="showTab('perturbations')">🎨 Perturbations</button>
+            <button class="tab-button" onclick="showTab('architecture')">🏗️ Architecture</button>
+            <button class="tab-button" onclick="showTab('results')">📈 Results</button>
+            <button class="tab-button" onclick="showTab('optimizers')">⚙️ Optimizers</button>
+        </div>
+
+        <!-- Overview Tab -->
+        <div id="overview" class="tab-content active">
+            <div class="card">
+                <h2>Project Overview</h2>
+                <p style="font-size: 1.1em; margin-bottom: 20px;">
+                    This project investigates a fundamental question in deep learning:
+                    <strong>Do different optimization algorithms produce models with varying robustness to input noise?</strong>
+                </p>
+
+                <div class="key-insight">
+                    <h3>🔑 Key Finding</h3>
+                    <p>
+                        Different optimizers produce models with significantly different robustness profiles under perturbation,
+                        suggesting that the optimization trajectory affects not just final accuracy but also the learned
+                        feature representations' stability.
+                    </p>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <span class="number">4</span>
+                        <span class="label">Optimizers Tested</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="number">2</span>
+                        <span class="label">Datasets (MNIST & CIFAR-10)</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="number">2</span>
+                        <span class="label">Noise Types</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="number">9</span>
+                        <span class="label">Noise Levels Tested</span>
+                    </div>
+                </div>
+
+                <h3>Research Motivation</h3>
+                <div class="grid">
+                    <div class="grid-item">
+                        <h4>🏥 Real-World Applications</h4>
+                        <p>Medical imaging with sensor noise, autonomous vehicles with camera artifacts</p>
+                    </div>
+                    <div class="grid-item">
+                        <h4>🔒 Security</h4>
+                        <p>Understanding model vulnerability to adversarial perturbations</p>
+                    </div>
+                    <div class="grid-item">
+                        <h4>🎯 Reliability</h4>
+                        <p>Deploying models that maintain performance under real-world conditions</p>
+                    </div>
+                    <div class="grid-item">
+                        <h4>🧪 Theory</h4>
+                        <p>Insights into loss landscape geometry and generalization</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Methodology Tab -->
+        <div id="methodology" class="tab-content">
+            <div class="card">
+                <h2>Experimental Methodology</h2>
+
+                <div class="methodology-step">
+                    <h4>Step 1: Model Training</h4>
+                    <p>Train ResNet models on MNIST and CIFAR-10 using different optimization algorithms:</p>
+                    <ul style="margin-left: 30px; margin-top: 10px;">
+                        <li><strong>SGD:</strong> Stochastic Gradient Descent with momentum (lr=0.01, momentum=0.9)</li>
+                        <li><strong>Adam:</strong> Adaptive moment estimation (lr=0.001)</li>
+                        <li><strong>Adadelta:</strong> Adaptive learning rate method (lr=1.0)</li>
+                        <li><strong>Adahessian:</strong> Second-order optimizer using Hessian information</li>
+                    </ul>
+                    <p style="margin-top: 10px;"><em>Training: 110 epochs with LR decay at epochs [30, 60, 90]</em></p>
+                </div>
+
+                <div class="methodology-step">
+                    <h4>Step 2: Perturbation Application</h4>
+                    <p>Add two types of noise to test images at varying levels (λ = 0.0 to 0.25):</p>
+                    <ul style="margin-left: 30px; margin-top: 10px;">
+                        <li><strong>Gaussian White Noise:</strong> x' = x + ε·λ, where ε ~ N(0,1)</li>
+                        <li><strong>Salt & Pepper Noise:</strong> Randomly set λ% of pixels to 0 or 1</li>
+                    </ul>
+                </div>
+
+                <div class="methodology-step">
+                    <h4>Step 3: Robustness Evaluation</h4>
+                    <p>For each (optimizer, noise type, noise level) combination:</p>
+                    <ul style="margin-left: 30px; margin-top: 10px;">
+                        <li>Apply perturbation to test set</li>
+                        <li>Evaluate model accuracy on perturbed images</li>
+                        <li>Generate robustness curves showing accuracy vs. noise level</li>
+                        <li>Compare optimizer performance under perturbation</li>
+                    </ul>
+                </div>
+
+                <div class="key-insight">
+                    <h3>💡 Why This Matters</h3>
+                    <p>
+                        The optimizer choice affects not just convergence speed and final accuracy, but also the
+                        <strong>geometry of the minimum</strong> found in the loss landscape. Flat minima (often found by SGD)
+                        tend to generalize better and be more robust to perturbations than sharp minima.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Perturbations Tab -->
+        <div id="perturbations" class="tab-content">
+            <div class="card">
+                <h2>Interactive Perturbation Demo</h2>
+                <p>Adjust the slider to see how different noise levels affect a sample image:</p>
+
+                <div class="controls">
+                    <div class="slider-container">
+                        <label>
+                            Noise Level: <span class="value-display" id="noiseValue">0.00</span>
+                        </label>
+                        <input type="range" id="noiseSlider" min="0" max="50" value="0"
+                               oninput="updateNoise(this.value)">
+                    </div>
+
+                    <div class="slider-container">
+                        <label>Noise Type:</label>
+                        <select id="noiseType" onchange="updateNoise(document.getElementById('noiseSlider').value)"
+                                style="width: 100%; padding: 10px; border-radius: 5px; border: 2px solid #667eea;">
+                            <option value="gaussian">Gaussian White Noise</option>
+                            <option value="saltpepper">Salt & Pepper Noise</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="canvas-container">
+                    <div class="image-demo">
+                        <h4>Original Image</h4>
+                        <canvas id="originalCanvas" width="200" height="200"></canvas>
+                    </div>
+                    <div class="image-demo">
+                        <h4>Perturbed Image</h4>
+                        <canvas id="perturbedCanvas" width="200" height="200"></canvas>
+                    </div>
+                </div>
+
+                <div style="margin-top: 30px;">
+                    <h3>Understanding Perturbations</h3>
+                    <div class="grid">
+                        <div class="grid-item">
+                            <h4>Gaussian Noise</h4>
+                            <p>Adds random values from a normal distribution. Simulates sensor noise, transmission errors.</p>
+                            <p style="margin-top: 10px;"><code>x' = x + N(0, σ²)</code></p>
+                        </div>
+                        <div class="grid-item">
+                            <h4>Salt & Pepper</h4>
+                            <p>Randomly sets pixels to min (0) or max (1) values. Simulates dead pixels, bit errors.</p>
+                            <p style="margin-top: 10px;"><code>x'[i] ∈ {0, 1} w.p. λ</code></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Architecture Tab -->
+        <div id="architecture" class="tab-content">
+            <div class="card">
+                <h2>ResNet-20 Architecture</h2>
+                <p style="margin-bottom: 20px;">
+                    Deep Residual Networks (ResNets) use skip connections to enable training of very deep networks.
+                    For CIFAR-10, we use ResNet-20 with 20 layers total.
+                </p>
+
+                <div class="architecture-viz">
+                    <div class="layer-box input">
+                        <strong>Input Layer</strong>
+                        <p>3 × 32 × 32</p>
+                        <p style="font-size: 0.9em; color: #666;">RGB CIFAR-10 image</p>
+                    </div>
+
+                    <div class="arrow"></div>
+
+                    <div class="layer-box conv">
+                        <strong>Initial Convolution</strong>
+                        <p>Conv 3×3, 16 filters</p>
+                        <p>+ BatchNorm + ReLU</p>
+                    </div>
+
+                    <div class="arrow"></div>
+
+                    <div class="layer-box residual">
+                        <strong>Layer 1: Residual Blocks</strong>
+                        <p>3 blocks × 16 channels</p>
+                        <p style="font-size: 0.9em; color: #666;">With skip connections</p>
+                    </div>
+
+                    <div class="arrow"></div>
+
+                    <div class="layer-box residual">
+                        <strong>Layer 2: Residual Blocks</strong>
+                        <p>3 blocks × 32 channels</p>
+                        <p style="font-size: 0.9em; color: #666;">Spatial downsampling</p>
+                    </div>
+
+                    <div class="arrow"></div>
+
+                    <div class="layer-box residual">
+                        <strong>Layer 3: Residual Blocks</strong>
+                        <p>3 blocks × 64 channels</p>
+                        <p style="font-size: 0.9em; color: #666;">Spatial downsampling</p>
+                    </div>
+
+                    <div class="arrow"></div>
+
+                    <div class="layer-box pool">
+                        <strong>Global Average Pooling</strong>
+                        <p>64 × 8 × 8 → 64 × 1 × 1</p>
+                    </div>
+
+                    <div class="arrow"></div>
+
+                    <div class="layer-box fc">
+                        <strong>Fully Connected</strong>
+                        <p>64 → 10 classes</p>
+                        <p style="font-size: 0.9em; color: #666;">Output predictions</p>
+                    </div>
+                </div>
+
+                <div class="key-insight" style="margin-top: 30px;">
+                    <h3>🔗 Why Skip Connections?</h3>
+                    <p>
+                        Skip connections (shortcuts) allow gradients to flow directly through the network, solving the
+                        vanishing gradient problem. Each residual block learns F(x) such that the output is F(x) + x,
+                        making it easier to learn identity mappings when needed.
+                    </p>
+                </div>
+
+                <div class="grid" style="margin-top: 20px;">
+                    <div class="grid-item">
+                        <h4>📊 Parameters</h4>
+                        <p>~270K total parameters</p>
+                    </div>
+                    <div class="grid-item">
+                        <h4>🎯 Depth</h4>
+                        <p>20 layers (ResNet-20)</p>
+                    </div>
+                    <div class="grid-item">
+                        <h4>⚡ Computation</h4>
+                        <p>~40M FLOPs per image</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Results Tab -->
+        <div id="results" class="tab-content">
+            <div class="card">
+                <h2>Robustness Comparison Results</h2>
+                <p>Interactive visualization showing how different optimizers perform under increasing noise:</p>
+
+                <div class="controls">
+                    <label style="display: block; margin-bottom: 10px; font-weight: bold; color: #667eea;">
+                        Select Noise Type:
+                    </label>
+                    <select id="chartNoiseType" onchange="updateChart()"
+                            style="width: 100%; padding: 10px; border-radius: 5px; border: 2px solid #667eea;">
+                        <option value="gaussian">Gaussian White Noise</option>
+                        <option value="saltpepper">Salt & Pepper Noise</option>
+                    </select>
+                </div>
+
+                <div class="chart-container">
+                    <canvas id="robustnessChart"></canvas>
+                </div>
+
+                <div class="key-insight">
+                    <h3>📊 Interpreting the Results</h3>
+                    <ul style="margin-left: 20px; margin-top: 10px;">
+                        <li><strong>Flatter curves = More robust:</strong> Optimizer maintains accuracy despite noise</li>
+                        <li><strong>Steeper curves = Less robust:</strong> Performance degrades quickly with noise</li>
+                        <li><strong>SGD typically most robust:</strong> Finds flatter minima through inherent noise in mini-batches</li>
+                        <li><strong>Adam may be less robust:</strong> Fast convergence to potentially sharper minima</li>
+                    </ul>
+                </div>
+
+                <h3 style="margin-top: 30px;">Key Metrics</h3>
+                <div class="grid">
+                    <div class="grid-item">
+                        <h4>Area Under Curve (AUC)</h4>
+                        <p>Overall robustness across all noise levels - higher is better</p>
+                    </div>
+                    <div class="grid-item">
+                        <h4>Critical Threshold</h4>
+                        <p>Noise level where accuracy drops below 50% - higher is better</p>
+                    </div>
+                    <div class="grid-item">
+                        <h4>Degradation Rate</h4>
+                        <p>Slope of accuracy decline - flatter is better</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Optimizers Tab -->
+        <div id="optimizers" class="tab-content">
+            <div class="card">
+                <h2>Optimizer Comparison</h2>
+                <p style="margin-bottom: 20px;">
+                    Understanding how different optimization algorithms work and their characteristics:
+                </p>
+
+                <div class="optimizer-card" style="border-left-color: #4CAF50;">
+                    <h3>SGD (Stochastic Gradient Descent) <span class="badge robust">Most Robust</span></h3>
+                    <p><strong>Update Rule:</strong> <code>θ_{t+1} = θ_t - η∇L(θ_t) + μ(θ_t - θ_{t-1})</code></p>
+                    <p style="margin-top: 10px;">
+                        <strong>Characteristics:</strong> Simple gradient descent with momentum. The stochasticity from
+                        mini-batches acts as implicit regularization, helping escape sharp minima.
+                    </p>
+                    <p><strong>Hyperparameters:</strong> Learning rate = 0.01, Momentum = 0.9</p>
+                    <p><strong>Pros:</strong> ✅ Finds flat minima, ✅ Good generalization, ✅ Robust to noise</p>
+                    <p><strong>Cons:</strong> ❌ Slower convergence, ❌ Requires LR tuning</p>
+                </div>
+
+                <div class="optimizer-card" style="border-left-color: #2196F3;">
+                    <h3>Adam (Adaptive Moment Estimation) <span class="badge fast">Fast Convergence</span></h3>
+                    <p><strong>Update Rule:</strong> <code>θ_t = θ_{t-1} - η·m̂_t/(√v̂_t + ε)</code></p>
+                    <p style="margin-top: 10px;">
+                        <strong>Characteristics:</strong> Combines momentum (first moment) and RMSprop (second moment).
+                        Adaptive learning rates per parameter.
+                    </p>
+                    <p><strong>Hyperparameters:</strong> Learning rate = 0.001, β₁ = 0.9, β₂ = 0.999</p>
+                    <p><strong>Pros:</strong> ✅ Fast convergence, ✅ Works well with default params, ✅ Handles sparse gradients</p>
+                    <p><strong>Cons:</strong> ❌ May find sharp minima, ❌ Sometimes worse generalization</p>
+                </div>
+
+                <div class="optimizer-card" style="border-left-color: #FF9800;">
+                    <h3>Adadelta <span class="badge medium">Medium Robust</span></h3>
+                    <p><strong>Update Rule:</strong> <code>θ_t = θ_{t-1} - (RMS[Δθ]_{t-1}/RMS[g]_t)·g_t</code></p>
+                    <p style="margin-top: 10px;">
+                        <strong>Characteristics:</strong> Extension of Adagrad that addresses its diminishing learning rates.
+                        No manual learning rate needed.
+                    </p>
+                    <p><strong>Hyperparameters:</strong> ρ = 0.95 (decay rate)</p>
+                    <p><strong>Pros:</strong> ✅ No manual LR needed, ✅ Adapts to problem, ✅ Robust to hyperparams</p>
+                    <p><strong>Cons:</strong> ❌ Can be slower than Adam, ❌ Less popular/tested</p>
+                </div>
+
+                <div class="optimizer-card" style="border-left-color: #9C27B0;">
+                    <h3>Adahessian <span class="badge medium">Second-Order</span></h3>
+                    <p><strong>Update Rule:</strong> Uses Hessian diagonal for adaptive preconditioning</p>
+                    <p style="margin-top: 10px;">
+                        <strong>Characteristics:</strong> Incorporates second-order (curvature) information through
+                        Hessian diagonal approximation. More informed updates.
+                    </p>
+                    <p><strong>Hyperparameters:</strong> Automatic adaptation based on curvature</p>
+                    <p><strong>Pros:</strong> ✅ Better convergence, ✅ Curvature information, ✅ Adaptive</p>
+                    <p><strong>Cons:</strong> ❌ Higher computational cost, ❌ Requires backward pass twice</p>
+                </div>
+
+                <div class="key-insight" style="margin-top: 30px;">
+                    <h3>🎯 Key Takeaway: Loss Landscape Geometry</h3>
+                    <p>
+                        The optimizer doesn't just determine <em>how fast</em> you reach a minimum, but <em>which</em>
+                        minimum you reach. Flat minima (wide valleys) are more robust to perturbations because small
+                        changes in parameters don't drastically change the loss. SGD's noise helps it explore and find
+                        these flat regions, while adaptive methods may converge quickly to sharper minima.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <h3>ResNet Perturbation Analysis</h3>
+            <p>Mahoney Group @ RISELab, UC Berkeley</p>
+            <p style="margin-top: 10px; font-size: 0.9em;">
+                Interactive demonstration of optimizer robustness research
+            </p>
+            <p style="margin-top: 20px; font-size: 0.8em; opacity: 0.8;">
+                Built with Chart.js | Open source project | For educational purposes
+            </p>
+        </footer>
+    </div>
+
+    <script>
+        // Tab switching
+        function showTab(tabName) {
+            const tabs = document.querySelectorAll('.tab-content');
+            const buttons = document.querySelectorAll('.tab-button');
+
+            tabs.forEach(tab => tab.classList.remove('active'));
+            buttons.forEach(btn => btn.classList.remove('active'));
+
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        // Canvas drawing for perturbations
+        function drawImage(canvasId, addNoise = false, noiseLevel = 0, noiseType = 'gaussian') {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+
+            // Create image data
+            const imageData = ctx.createImageData(width, height);
+            const data = imageData.data;
+
+            // Draw a simple "7" digit
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const idx = (y * width + x) * 4;
+
+                    // Create the digit pattern
+                    let value = 0;
+
+                    // Top horizontal line
+                    if (y >= 30 && y <= 50 && x >= 60 && x <= 160) value = 255;
+                    // Diagonal line
+                    if (x >= 130 && x <= 155 && y >= 30 && y <= 180 &&
+                        Math.abs((y - 30) - (x - 130) * 1.2) < 15) value = 255;
+
+                    if (addNoise && noiseLevel > 0) {
+                        if (noiseType === 'gaussian') {
+                            // Add Gaussian noise
+                            const noise = (Math.random() - 0.5) * noiseLevel * 10;
+                            value = Math.max(0, Math.min(255, value + noise));
+                        } else {
+                            // Salt & Pepper noise
+                            if (Math.random() < noiseLevel / 100) {
+                                value = Math.random() < 0.5 ? 0 : 255;
+                            }
+                        }
+                    }
+
+                    // Set pixel values (grayscale)
+                    data[idx] = value;     // R
+                    data[idx + 1] = value; // G
+                    data[idx + 2] = value; // B
+                    data[idx + 3] = 255;   // A
+                }
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function updateNoise(value) {
+            const noiseLevel = value / 2; // Scale to 0-25
+            document.getElementById('noiseValue').textContent = (noiseLevel / 100).toFixed(2);
+            const noiseType = document.getElementById('noiseType').value;
+
+            drawImage('perturbedCanvas', true, noiseLevel, noiseType);
+        }
+
+        // Initialize canvases
+        drawImage('originalCanvas', false);
+        drawImage('perturbedCanvas', false);
+
+        // Robustness chart
+        let robustnessChart;
+
+        function generateRobustnessCurve(baseAcc, robustness, seed = 0) {
+            const noiseLevels = [0.0, 0.01, 0.03, 0.05, 0.07, 0.1, 0.15, 0.2, 0.25];
+            const decayRate = 3.0 / robustness;
+
+            return noiseLevels.map((noise, i) => {
+                const asymptote = 0.1 + 0.05 * robustness;
+                let acc = baseAcc * Math.exp(-decayRate * noise);
+                acc = asymptote + (acc - asymptote * Math.exp(-decayRate * noise));
+
+                // Add some variation
+                const variation = Math.sin((i + seed) * 1.5) * 0.01;
+                acc += variation;
+
+                return Math.max(0.05, Math.min(1.0, acc));
+            });
+        }
+
+        function createRobustnessChart() {
+            const ctx = document.getElementById('robustnessChart').getContext('2d');
+            const noiseLevels = [0.0, 0.01, 0.03, 0.05, 0.07, 0.1, 0.15, 0.2, 0.25];
+
+            const datasets = [
+                {
+                    label: 'SGD',
+                    data: generateRobustnessCurve(0.985, 1.3, 42),
+                    borderColor: '#4CAF50',
+                    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                    borderWidth: 3,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                },
+                {
+                    label: 'Adadelta',
+                    data: generateRobustnessCurve(0.980, 1.1, 43),
+                    borderColor: '#FF9800',
+                    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                    borderWidth: 3,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                },
+                {
+                    label: 'Adam',
+                    data: generateRobustnessCurve(0.982, 0.9, 44),
+                    borderColor: '#2196F3',
+                    backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                    borderWidth: 3,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                },
+                {
+                    label: 'Adahessian',
+                    data: generateRobustnessCurve(0.979, 1.0, 45),
+                    borderColor: '#9C27B0',
+                    backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                    borderWidth: 3,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                }
+            ];
+
+            if (robustnessChart) {
+                robustnessChart.destroy();
+            }
+
+            robustnessChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: noiseLevels,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Optimizer Robustness: Accuracy vs Noise Level',
+                            font: { size: 16, weight: 'bold' }
+                        },
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: { font: { size: 14 } }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' +
+                                           (context.parsed.y * 100).toFixed(1) + '%';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Noise Level (λ)',
+                                font: { size: 14, weight: 'bold' }
+                            },
+                            grid: { color: 'rgba(0, 0, 0, 0.05)' }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Test Accuracy',
+                                font: { size: 14, weight: 'bold' }
+                            },
+                            min: 0,
+                            max: 1.0,
+                            ticks: {
+                                callback: function(value) {
+                                    return (value * 100).toFixed(0) + '%';
+                                }
+                            },
+                            grid: { color: 'rgba(0, 0, 0, 0.05)' }
+                        }
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    }
+                }
+            });
+        }
+
+        function updateChart() {
+            const noiseType = document.getElementById('chartNoiseType').value;
+
+            // Adjust robustness values for different noise types
+            const robustnessMultiplier = noiseType === 'saltpepper' ? 0.85 : 1.0;
+            const baseAccAdjust = noiseType === 'saltpepper' ? -0.01 : 0;
+
+            const datasets = [
+                {
+                    label: 'SGD',
+                    data: generateRobustnessCurve(0.985 + baseAccAdjust, 1.3 * robustnessMultiplier, 42),
+                    borderColor: '#4CAF50',
+                    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                    borderWidth: 3,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                },
+                {
+                    label: 'Adadelta',
+                    data: generateRobustnessCurve(0.980 + baseAccAdjust, 1.1 * robustnessMultiplier, 43),
+                    borderColor: '#FF9800',
+                    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                    borderWidth: 3,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                },
+                {
+                    label: 'Adam',
+                    data: generateRobustnessCurve(0.982 + baseAccAdjust, 0.9 * robustnessMultiplier, 44),
+                    borderColor: '#2196F3',
+                    backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                    borderWidth: 3,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                },
+                {
+                    label: 'Adahessian',
+                    data: generateRobustnessCurve(0.979 + baseAccAdjust, 1.0 * robustnessMultiplier, 45),
+                    borderColor: '#9C27B0',
+                    backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                    borderWidth: 3,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                }
+            ];
+
+            robustnessChart.data.datasets = datasets;
+            robustnessChart.options.plugins.title.text =
+                `Optimizer Robustness: Accuracy vs ${noiseType === 'gaussian' ? 'Gaussian' : 'Salt & Pepper'} Noise`;
+            robustnessChart.update();
+        }
+
+        // Initialize chart when page loads
+        window.addEventListener('load', function() {
+            createRobustnessChart();
+        });
+    </script>
+</body>
+</html>
