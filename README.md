@@ -420,7 +420,7 @@ Trained Model Weights
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/resnet-perturbations-riselab.git
+git clone https://github.com/yeungjosh/resnet-perturbations-riselab.git
 cd resnet-perturbations-riselab
 
 # Install dependencies
@@ -429,6 +429,8 @@ pip install numpy matplotlib scikit-learn tqdm
 pip install adahessian  # For Adahessian optimizer
 pip install chop-pytorch  # For Frank-Wolfe optimization
 pip install seaborn pandas easydict
+pip install robustness  # imported by training-scripts/resnet.py
+pip install wandb  # only for low_rank_plus_sparse_CIFAR10_training.py
 ```
 
 ---
@@ -674,8 +676,15 @@ resnet-perturbations-riselab/
 │
 ├── perturbation_analysis.py          # Main perturbation testing (GPU)
 ├── CPU_perturbation_analysis.py      # CPU version
+├── PR_DESCRIPTION.md                 # Description of the original docs/demo PR
 │
-└── notebooks/                         # Interactive analysis
+├── webapp/                            # Deployable web app (see webapp/README.md)
+│   ├── index.html
+│   ├── app.js
+│   ├── package.json
+│   └── vercel.json
+│
+└── *.ipynb                            # Interactive analysis notebooks (repo root)
     ├── perturbation_analysis.ipynb
     ├── cifar10_perturbation_analysis.ipynb
     ├── pytorch_resnet_mnist_SGD.ipynb
