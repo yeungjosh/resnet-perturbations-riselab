@@ -491,6 +491,18 @@ python3 resnet_training.py \
 
 After training multiple models with different optimizers:
 
+> **Checkpoint compatibility note.** `training-scripts/resnet_training.py`
+> saves only a `state_dict` named `{dataset}_resnet_{optimizer}_best.pkl`.
+> `perturbation_analysis.py` and `CPU_perturbation_analysis.py` instead call
+> `torch.load("./resnet_adadelta_best.pkl")` (and the `adam` / `sgd`
+> equivalents) and use the result directly as a model. Before running them you
+> need to either (a) rename or edit the paths to match your trained files, and
+> (b) save/load a full model object rather than a bare `state_dict` (for
+> example, build `MnistResNet()`, call `load_state_dict(...)`, and pass that
+> model to `perturb`). Both scripts also run against MNIST with `ntype = 'sp'`
+> (salt & pepper) hard-coded near the bottom; change it to `'white'` for
+> Gaussian noise.
+
 #### CPU-based Analysis
 
 ```bash
